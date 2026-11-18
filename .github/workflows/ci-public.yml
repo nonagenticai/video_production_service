@@ -96,16 +96,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg
 
-      # Rendering services exercise Playwright; the runners ship no browsers.
-      # Conditional so repos that do not depend on Playwright pay nothing.
-      # Measured 2026-11-18 on html_render_service: 30 failures, all
-      # "Executable doesn't exist … playwright install".
-      - name: install Playwright browsers (only when the repo uses Playwright)
-        run: |
-          if uv run python -c 'import playwright' >/dev/null 2>&1; then
-            uv run playwright install --with-deps chromium
-          fi
-
       - name: start Postgres 18
         run: |
           set -euo pipefail
@@ -121,7 +111,7 @@ jobs:
           docker exec ci-pg pg_isready -h 127.0.0.1 -U postgres
           docker exec ci-pg psql -U postgres -q -c 'CREATE DATABASE app_ci'
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -133,6 +123,16 @@ jobs:
       # red. Dropping extras silently removes whole test directories.
       - name: install (locked)
         run: uv sync --frozen --all-extras
+
+      # Rendering services exercise Playwright; the runners ship no browsers.
+      # Conditional so repos that do not depend on Playwright pay nothing.
+      # Measured 2026-11-18 on html_render_service: 30 failures, all
+      # "Executable doesn't exist … playwright install".
+      - name: install Playwright browsers (only when the repo uses Playwright)
+        run: |
+          if uv run python -c 'import playwright' >/dev/null 2>&1; then
+            uv run playwright install --with-deps chromium
+          fi
 
       - name: ruff check
         run: uv run ruff check .
