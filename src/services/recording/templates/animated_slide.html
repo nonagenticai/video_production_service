@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:9% 9%;background:radial-gradient(120% 120% at 80% 0%,var(--bg2),var(--bg));
+    background-size:140% 140%;animation:bgShimmer 18s ease-in-out infinite}
+  .glow{position:absolute;width:48vmin;height:48vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);left:-14vmin;bottom:-16vmin;pointer-events:none;
+    will-change:transform,opacity;animation:drift 12s ease-in-out infinite}
+  /* Ambient glow drift + gentle pulse; captured deterministically per-frame. */
+  @keyframes drift{
+    0%{transform:translate(0,0) scale(1);opacity:.18}
+    50%{transform:translate(6vmin,-4vmin) scale(1.12);opacity:.28}
+    100%{transform:translate(0,0) scale(1);opacity:.18}}
+  @keyframes bgShimmer{
+    0%{background-position:80% 0%}
+    50%{background-position:72% 8%}
+    100%{background-position:80% 0%}}
+  .kicker{font-size:2.2vmin;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:2.4vmin}
+  h1{font-family:var(--font-display);font-weight:600;font-size:6.6vmin;line-height:1.04;
+    letter-spacing:-.02em;color:var(--text);max-width:18em;margin-bottom:5vmin}
+  ul{list-style:none;display:flex;flex-direction:column;gap:2.6vmin;max-width:30em}
+  li{display:flex;align-items:flex-start;gap:2vmin;font-size:3.4vmin;line-height:1.25;
+    color:var(--text)}
+  li .dot{flex-shrink:0;width:1.4vmin;height:1.4vmin;border-radius:50%;background:var(--accent);
+    margin-top:1.5vmin;box-shadow:0 0 0 .6vmin color-mix(in srgb,var(--accent) 24%,transparent)}
+  .metric{position:absolute;right:9%;bottom:9%;text-align:right}
+  .metric .v{font-family:var(--font-display);font-weight:600;font-size:9vmin;color:var(--accent2);
+    line-height:1}
+  .metric .l{font-size:2.2vmin;font-weight:600;letter-spacing:.06em;color:var(--muted);
+    text-transform:uppercase;margin-top:1vmin}
+  [data-anim]{opacity:0}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow"></div>
+  <span class="kicker" data-bind="kicker" data-anim></span>
+  <h1 data-bind="title" data-anim></h1>
+  <ul id="bullets"></ul>
+  <div class="metric" id="metric"><span class="v" id="metricV"></span><span class="l" data-bind="metric_label"></span></div>
+</div>
+<script>
+const DEFAULTS = {
+  kicker:'How it works', title:'Branded motion, on every line',
+  bullets:['Deterministic — same frame every render','On-brand by construction','Zero per-clip cost'],
+  metric:'', metric_label:'',
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+const r = document.documentElement.style;
+for (const [k,v] of Object.entries({bg:P.bg,bg2:P.bg2,accent:P.accent,accent2:P.accent2,text:P.text,muted:P.muted,
+    'font-display':P.font_display,'font-sans':P.font_sans}))
+  if (v) r.setProperty('--'+k, v);
+document.querySelectorAll('[data-bind]').forEach(el=>{
+  const v = P[el.getAttribute('data-bind')];
+  if (v != null) el.textContent = v;
+});
+const bullets = (Array.isArray(P.bullets) && P.bullets.length ? P.bullets : DEFAULTS.bullets).slice(0,6);
+const ul = document.getElementById('bullets');
+bullets.forEach(b=>{
+  const li = document.createElement('li');
+  li.setAttribute('data-anim','');
+  li.innerHTML = `<span class="dot"></span><span>${b}</span>`;
+  ul.appendChild(li);
+});
+// Metric is optional.
+const metricEl = document.getElementById('metric');
+if (!P.metric) metricEl.style.display='none';
+else document.getElementById('metricV').textContent = P.metric;
+
+// Motion timeline from the orchestrator's signature (VP-5). Every PARAMS key is
+// optional; the MotionLib defaults reproduce the legacy hand-tuned feel byte-for-
+// byte when no `motion` block is present, so a params-less render is unchanged.
+// LEGACY_TOTAL preserves the original duration formula (STAGGER was 420).
+const N = bullets.length;
+const LEGACY_TOTAL = 1500 + N*420 + 1200;
+const T = MotionLib.timing(P, N, LEGACY_TOTAL);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, LEGACY_TOTAL);
+// Honor the signature's stagger only when the orchestrator actually sent one;
+// otherwise fall back to the legacy fixed 420ms. (timing() caps the DEFAULT
+// stagger by entrance/n, which for >3 bullets would differ from the legacy fixed
+// gap and break the params-less byte-identical rhythm.)
+const staggerMs = MotionLib.has(P, 'stagger_ms') ? T.stagger : 420;
+const glowEl = document.querySelector('.glow');
+window.render = function(t){
+  // Entrance+exit via the shared primitive: params-less it is identical to the
+  // old translateY fade (easeOutCubic, no exit); under a signature it gains the
+  // requested easing/entrance direction and an exit gated on hold_end.
+  MotionLib.layer(document.querySelector('.kicker'), t, {start:100, dur:500, travel:14, T});
+  MotionLib.layer(document.querySelector('h1'), t, {start:350, dur:750, travel:26, T});
+  const lis = ul.querySelectorAll('li');
+  lis.forEach((li,i)=> MotionLib.layer(li, t, {start:1100 + i*staggerMs, dur:620, travel:20, T}));
+  if (P.metric){
+    const mp = MotionLib.ease(T.easing, (t-1100)/900);
+    const xf = (T.exit > 0 && t > T.holdEnd) ? 1 - MotionLib.ease('easeOutCubic', (t-T.holdEnd)/T.exit) : 1;
+    document.getElementById('metricV').style.opacity = mp*xf;
+    metricEl.style.opacity = mp*xf;
+    metricEl.style.transform = `scale(${0.9+mp*0.1})`;
+  }
+  // Depth parallax on the ambient glow — only when the signature asks for it
+  // (parallax defaults to 0 => the CSS @keyframes drift is left untouched).
+  if (T.parallax > 0 && glowEl){
+    const pp = MotionLib.clamp01(t / (T.holdEnd || 1));
+    glowEl.style.transform = `translate(${(0.5-pp)*10*T.parallax}vmin,${(0.5-pp)*7*T.parallax}vmin) scale(1.05)`;
+  }
+};
+window.render(0);
+</script>
+</body>
+</html>

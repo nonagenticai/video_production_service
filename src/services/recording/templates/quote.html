@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    align-items:center;text-align:center;padding:9% 11%;
+    background:radial-gradient(120% 120% at 80% 0%,var(--bg2),var(--bg))}
+  .glow{position:absolute;width:52vmin;height:52vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);right:-16vmin;top:-14vmin;pointer-events:none;
+    will-change:transform,opacity}
+  .kicker{font-size:2.2vmin;font-weight:700;letter-spacing:.26em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:4vmin}
+  .quote{position:relative;font-family:var(--font-display);font-weight:600;font-size:6.4vmin;
+    line-height:1.12;letter-spacing:-.02em;color:var(--text);max-width:20em;
+    will-change:transform,opacity}
+  .quote .mark{position:absolute;top:-6.2vmin;left:50%;transform:translateX(-50%);
+    font-family:var(--font-display);font-size:16vmin;line-height:1;color:var(--accent);
+    opacity:.32;pointer-events:none}
+  .rule{width:14vmin;height:.5vmin;border-radius:1vmin;margin:5vmin 0 3.4vmin;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));will-change:transform,opacity}
+  .attribution{font-size:2.8vmin;font-weight:600;letter-spacing:.04em;color:var(--muted);
+    text-transform:uppercase;will-change:transform,opacity}
+  .icon{margin-bottom:3vmin;display:none;line-height:0}
+  [data-anim]{opacity:0}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow"></div>
+  <span class="icon" id="icon" data-anim></span>
+  <span class="kicker" id="kicker" data-anim></span>
+  <blockquote class="quote" id="quote" data-anim><span class="mark" aria-hidden="true">&ldquo;</span><span id="quoteText"></span></blockquote>
+  <div class="rule" id="rule" data-anim></div>
+  <div class="attribution" id="attribution" data-anim></div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in quote/attribution copy: a caller that omits content must get
+  // an empty render, never a fabricated testimonial (see
+  // fix/strip-fabricated-template-defaults).
+  kicker:'', icon:'',
+  quote:'',
+  attribution:'',
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+// Content bind (textContent — never innerHTML — for user-supplied strings).
+// No quote text -> hide the whole blockquote (including its decorative mark)
+// rather than showing an empty oversized quotation glyph.
+const quoteEl = document.getElementById('quote');
+if (P.quote) { document.getElementById('quoteText').textContent = P.quote; }
+else { quoteEl.style.display = 'none'; }
+
+const attributionEl = document.getElementById('attribution');
+if (P.attribution) attributionEl.textContent = P.attribution;
+else attributionEl.style.display = 'none';
+
+const kickerEl = document.getElementById('kicker');
+if (P.kicker) kickerEl.textContent = P.kicker;
+else kickerEl.style.display = 'none';
+
+// Optional accent glyph (orchestrator does not send `icon` today → absent).
+const iconEl = document.getElementById('icon');
+const svg = (P.icon && typeof window.iconSvg === 'function')
+  ? window.iconSvg(P.icon, {color:'var(--accent)', size:'8vmin', strokeWidth:2}) : '';
+if (svg) { iconEl.innerHTML = svg; iconEl.style.display = 'block'; }
+else iconEl.style.display = 'none';
+
+// Ordered staggered elements (present-only), each with its own entrance travel.
+const seq = [];
+if (svg) seq.push({el:iconEl, travel:16});
+if (P.kicker) seq.push({el:kickerEl, travel:14});
+if (P.quote) seq.push({el:quoteEl, travel:30});
+seq.push({el:document.getElementById('rule'), travel:16});
+if (P.attribution) seq.push({el:attributionEl, travel:18});
+
+const FALLBACK_MS = 4200, BASE = 80, DUR = 720;
+const T = MotionLib.timing(P, seq.length, FALLBACK_MS);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, FALLBACK_MS);
+
+const glowEl = document.querySelector('.glow');
+window.render = function(t){
+  MotionLib.glow(glowEl, t, T);
+  seq.forEach((s,i)=> MotionLib.layer(s.el, t, {start:T.marks[i]+BASE, dur:DUR, travel:s.travel, T}));
+};
+window.render(0);
+</script>
+</body>
+</html>

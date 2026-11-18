@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  timeline — ordered steps under an optional header.
+
+  PARAMS (window.PARAMS; all optional)
+    kicker, title      strings (hidden when empty)
+    steps              up to 6 of string | {title, body} — and, in the "track"
+                       layout, also {icon: name from _icons.js} (replaces the
+                       step number inside the node)
+    layout             absent/"list" = the original vertical numbered list
+                       (unchanged); "track" = the film layout below
+    marks              number[2 + steps] ms: [kicker, title, step 1, step 2, ...]
+    brand tokens + motion signature — see _motion_lib.js
+
+  layout "track" (film kit: duration_ms, film_t_ms, marks, caption_safe — see _motion_lib.js):
+    caption_safe defaults to true: the layout stays above video_compiler's burned-in
+    caption band (bottom 18%; derivation in _motion_lib.js CAPTION).
+    a HORIZONTAL track across the whole frame. The rail, every node and every
+    (dimmed) label are on screen with the title from the first frame; a progress
+    line with an arrowhead enters from the left edge and reaches step i exactly at
+    marks[2 + i], lighting its node and label as it arrives.
+    Continuous motion: the progress line travels for the whole build; afterwards
+    light keeps running along it and the last reached node pulses.
+-->
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:8% 9%;background:radial-gradient(120% 120% at 80% 0%,var(--bg2),var(--bg));
+    background-size:140% 140%;animation:bgShimmer 18s ease-in-out infinite}
+  .glow{position:absolute;width:48vmin;height:48vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);right:-14vmin;top:-16vmin;pointer-events:none;
+    will-change:transform,opacity}
+  @keyframes bgShimmer{
+    0%{background-position:80% 0%}
+    50%{background-position:72% 8%}
+    100%{background-position:80% 0%}}
+  .kicker{font-size:2.2vmin;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:2.4vmin}
+  h1{font-family:var(--font-display);font-weight:600;font-size:5.6vmin;line-height:1.04;
+    letter-spacing:-.02em;color:var(--text);max-width:18em;margin-bottom:5vmin}
+  /* The connecting line runs behind the numbered nodes. */
+  ol{list-style:none;position:relative;display:flex;flex-direction:column;gap:3.4vmin;
+    max-width:34em}
+  ol::before{content:"";position:absolute;left:2.6vmin;top:1.6vmin;bottom:1.6vmin;width:.4vmin;
+    border-radius:.4vmin;background:linear-gradient(var(--accent),var(--accent2));opacity:.35}
+  li{display:flex;align-items:flex-start;gap:2.6vmin;position:relative}
+  li .node{flex-shrink:0;width:5.2vmin;height:5.2vmin;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--accent) 18%,var(--bg));
+    border:.4vmin solid var(--accent);color:var(--text);
+    font-family:var(--font-display);font-weight:600;font-size:2.6vmin;
+    box-shadow:0 0 0 .8vmin color-mix(in srgb,var(--accent) 14%,transparent)}
+  li .body{padding-top:.4vmin}
+  li .t{font-size:3vmin;line-height:1.2;font-weight:600;color:var(--text)}
+  li .d{font-size:2.2vmin;line-height:1.35;color:var(--muted);margin-top:.7vmin;max-width:24em}
+  [data-anim]{opacity:0}
+  /* ---- layout:"track" (film kit) — inert unless body.film is set ---- */
+  .twrap{display:none}
+  body.film .stage>.kicker,body.film .stage>h1,body.film .stage>ol{display:none}
+  body.film .stage{padding:calc(var(--u)*5) calc(var(--u)*7)}
+  body.film .twrap{display:flex;flex-direction:column;gap:calc(var(--u)*5.5);width:100%}
+  .twrap .fk{margin-bottom:calc(var(--u)*1.4)}
+  .track{position:relative;height:calc(var(--u)*29)}
+  .track .rail,.track .prog{position:absolute;top:calc(var(--u)*8.5);height:calc(var(--u)*.6);
+    margin-top:calc(var(--u)*-.3);border-radius:1vmin}
+  .track .rail{left:calc(var(--u)*-7);right:calc(var(--u)*-7);
+    background:color-mix(in srgb,var(--text) 20%,transparent)}
+  .track .prog{left:calc(var(--u)*-7);width:0;overflow:hidden;
+    background:linear-gradient(90deg,var(--accent2),var(--accent))}
+  .track .prog i{position:absolute;top:0;bottom:0;width:calc(var(--u)*7);
+    background:linear-gradient(90deg,transparent,rgba(255,255,255,.9),transparent)}
+  .track .head{position:absolute;top:calc(var(--u)*8.5);width:calc(var(--u)*4.6);height:calc(var(--u)*4.6);
+    margin:calc(var(--u)*-2.3) 0 0 calc(var(--u)*-3.4)}
+  .track .head svg{width:100%;height:100%;overflow:visible}
+  .tnode{position:absolute;top:0;width:0;display:flex;flex-direction:column;align-items:center}
+  .tnode .dot{position:relative;flex:0 0 auto;width:calc(var(--u)*17);height:calc(var(--u)*17);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;background:var(--bg);
+    font-family:var(--font-display);font-weight:700;font-size:calc(var(--u)*6.4);color:var(--text)}
+  .tnode .dot .off,.tnode .dot .on,.tnode .dot .ripple{position:absolute;inset:0;border-radius:50%}
+  .tnode .dot .off{box-shadow:inset 0 0 0 calc(var(--u)*.26) color-mix(in srgb,var(--text) 40%,transparent)}
+  .tnode .dot .on{background:color-mix(in srgb,var(--accent) 20%,var(--bg));
+    box-shadow:inset 0 0 0 calc(var(--u)*.42) var(--accent),0 0 calc(var(--u)*4.5) color-mix(in srgb,var(--accent) 42%,transparent)}
+  .tnode .dot .ripple{box-shadow:0 0 0 calc(var(--u)*.3) var(--accent);opacity:0}
+  .tnode .dot .g{position:absolute;inset:27%;display:flex}
+  .tnode .dot .num{position:relative}
+  .tnode .tl{margin-top:calc(var(--u)*2.6);width:calc(var(--u)*var(--tlw));text-align:center;
+    font-family:var(--font-display);font-weight:700;font-size:calc(var(--u)*4.1);line-height:1.1;
+    letter-spacing:-.02em;color:var(--text);text-wrap:balance}
+  .tnode .td{margin-top:calc(var(--u)*.9);width:calc(var(--u)*var(--tlw));text-align:center;
+    font-size:calc(var(--u)*2.5);line-height:1.3;color:var(--muted)}
+  @media (max-aspect-ratio:1/1){
+    .tnode .dot{width:calc(var(--u)*9);height:calc(var(--u)*9);font-size:calc(var(--u)*3.4)}
+    .track .rail,.track .prog,.track .head{top:calc(var(--u)*4.5)}
+    .tnode .tl{font-size:calc(var(--u)*2.6)}
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow" id="glow"></div>
+  <span class="kicker" id="kicker" data-anim></span>
+  <h1 id="title" data-anim></h1>
+  <ol id="steps"></ol>
+  <div class="twrap" id="twrap">
+    <div id="theader"><div class="fk" id="tkicker"></div><div class="ft" id="ttitle"></div></div>
+    <div class="track" id="track"><div class="rail"></div><div class="prog" id="prog"><i id="tglint"></i></div>
+      <div class="head" id="thead"><svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="3.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l9 8-9 8"/></svg></div></div>
+  </div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in kicker/title/steps copy: a caller that omits content must get
+  // an empty render, never fabricated marketing text (see
+  // fix/strip-fabricated-template-defaults).
+  kicker:'', title:'',
+  steps:[],
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+const kickerEl = document.getElementById('kicker');
+const titleEl = document.getElementById('title');
+// No fabricated fallback list: zero steps in → an empty <ol> (no fake roadmap).
+const rawSteps = Array.isArray(P.steps) ? P.steps : DEFAULTS.steps;
+
+if (P.layout === 'track') {
+  // ================= layout:"track" — film kit =================
+  const tsteps = rawSteps.slice(0, 6).map((s) => {
+    if (s == null) return {title:'', body:'', icon:''};
+    if (typeof s === 'string') return {title:s, body:'', icon:''};
+    return {title: s.title != null ? String(s.title) : '', body: s.body != null ? String(s.body) : '',
+            icon: s.icon != null ? String(s.icon) : ''};
+  });
+  const n = tsteps.length;
+  const F = MotionLib.film(P, {beats: 2 + n, fallbackMs: 6000});
+  window.RENDER_DURATION_MS = F.dur;
+  const $ = (id) => document.getElementById(id);
+  const tk = $('tkicker'), tt = $('ttitle'), track = $('track');
+  if (P.kicker) tk.textContent = String(P.kicker); else tk.style.display = 'none';
+  if (P.title) tt.textContent = String(P.title); else tt.style.display = 'none';
+  if (!P.kicker && !P.title) $('theader').style.display = 'none';
+  // Node i sits at X[i] % of the track; labels get one slot's width each.
+  const X = tsteps.map((_, i) => (i + 0.5) / n * 100);
+  document.documentElement.style.setProperty('--tlw', (86 / Math.max(n, 1) - 3).toFixed(2));
+  const nodes = tsteps.map((st, i) => {
+    const el = document.createElement('div');
+    el.className = 'tnode';
+    el.style.left = X[i] + '%';
+    // Icon NAMES resolve through the fixed ICONS table; caller text via textContent.
+    const g0 = iconSvg(st.icon, {size:'100%', color:'var(--text)', strokeWidth:1.6});
+    el.innerHTML = '<div class="dot"><div class="off"></div><div class="on"></div><div class="ripple"></div>' +
+      (g0 ? '<div class="g g0">' + g0 + '</div><div class="g g1">' +
+        iconSvg(st.icon, {size:'100%', color:'var(--accent)', strokeWidth:1.6}) + '</div>'
+          : '<span class="num">' + (i + 1) + '</span>') +
+      '</div><div class="tl"></div><div class="td"></div>';
+    const q = (c) => el.querySelector(c);
+    q('.tl').textContent = st.title;
+    if (st.body) q('.td').textContent = st.body; else q('.td').style.display = 'none';
+    track.appendChild(el);
+    return {el, dot: q('.dot'), on: q('.on'), ripple: q('.ripple'), g0: q('.g0'), g1: q('.g1'), tl: q('.tl'), td: q('.td')};
+  });
+  F.ready(function(){
+    MotionLib.fit(tt, 2, 0.6);
+    nodes.forEach((b) => MotionLib.fit(b.tl, 2, 0.6));
+    // The nodes are absolutely placed: give the track the tallest one's height
+    // so the header + track block centres on what is actually drawn.
+    let h = 0;
+    nodes.forEach((b) => { h = Math.max(h, b.el.offsetHeight); });
+    if (h > 0) track.style.height = h + 'px';
+  });
+  const prog = $('prog'), head = $('thead'), glint = $('tglint');
+  const LEFT_U = 7;     // the rail starts this many u left of the track (at the frame edge)
+  // Tip position (% of track width) at time t: enters from the frame's left edge
+  // and arrives at node i exactly on marks[2+i].
+  function tipAt(t){
+    if (!n) return -10;
+    let t0 = 0, x0 = -9;
+    for (let i = 0; i < n; i++){
+      const t1 = Math.max(F.marks[2 + i], t0 + 1), x1 = X[i];
+      if (t <= t1) return x0 + (x1 - x0) * MotionLib.ease('easeInOutCubic', (t - t0) / (t1 - t0));
+      t0 = t1; x0 = x1;
+    }
+    return x0;
+  }
+  window.render = function(t){
+    F.ambient(t);
+    F.enter(tk, t, 0, {dur: 420, travel: 1});
+    F.enter(tt, t, 0, {dur: 560, travel: 2});
+    const e0 = F.p(t, 0, 560, 80);
+    track.style.opacity = e0;
+    const tip = tipAt(t);
+    prog.style.width = 'max(0px,calc(' + tip.toFixed(3) + '% + var(--u)*' + LEFT_U + '))';
+    head.style.left = tip.toFixed(3) + '%';
+    const done = n ? t >= F.marks[1 + n] : true;
+    // The arrowhead rides the tip and tucks under the last node when it lands.
+    head.style.opacity = done ? 1 - MotionLib.clamp01((t - F.marks[1 + n]) / 250) : MotionLib.clamp01((tip + 9) / 3);
+    // Light keeps running along the drawn part of the line.
+    glint.style.left = (-12 + 124 * F.loop(t, 2300)) + '%';
+    let last = -1;
+    nodes.forEach((b, i) => { if (t >= F.marks[2 + i]) last = i; });
+    nodes.forEach((b, i) => {
+      const v = F.p(t, 2 + i, 520);
+      const pop = MotionLib.ease('easeOutBack', (t - F.marks[2 + i]) / 480);
+      b.on.style.opacity = v;
+      b.dot.style.transform = 'scale(' + (0.9 + 0.1 * pop + (i === last ? 0.02 * F.wave(t, 1800) : 0)).toFixed(4) + ')';
+      if (b.g0){ b.g0.style.opacity = 1 - v; b.g1.style.opacity = v; }
+      b.tl.style.opacity = 0.5 + 0.5 * v;
+      b.td.style.opacity = 0.5 + 0.5 * v;
+      b.tl.style.transform = 'translateY(calc(var(--u)*' + ((1 - v) * 0.6).toFixed(3) + '))';
+      const rp = i === last && t > F.marks[2 + i] + 300 ? F.loop(t - F.marks[2 + i], 1700) : 0;
+      b.ripple.style.opacity = rp > 0 ? 0.6 * (1 - rp) : 0;
+      b.ripple.style.transform = 'scale(' + (1 + 0.4 * rp).toFixed(4) + ')';
+    });
+  };
+  window.render(0);
+} else {
+  // ================= original vertical list (unchanged) =================
+// Bind header text (textContent — no HTML injection).
+if (P.kicker) kickerEl.textContent = P.kicker; else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = P.title; else titleEl.style.display = 'none';
+
+// Normalize steps: accept a plain list of strings OR {title, body?} objects.
+function normStep(s){
+  if (s == null) return {title:'', body:''};
+  if (typeof s === 'string') return {title:s, body:''};
+  return {title:s.title != null ? String(s.title) : '', body:s.body != null ? String(s.body) : ''};
+}
+const steps = rawSteps.slice(0, 6).map(normStep);
+
+const ol = document.getElementById('steps');
+steps.forEach((s, i) => {
+  const li = document.createElement('li');
+  li.setAttribute('data-anim', '');
+  const node = document.createElement('span');
+  node.className = 'node';
+  node.textContent = String(i + 1);
+  const body = document.createElement('span');
+  body.className = 'body';
+  const t = document.createElement('div');
+  t.className = 't';
+  t.textContent = s.title;
+  body.appendChild(t);
+  if (s.body){
+    const d = document.createElement('div');
+    d.className = 'd';
+    d.textContent = s.body;
+    body.appendChild(d);
+  }
+  li.appendChild(node);
+  li.appendChild(body);
+  ol.appendChild(li);
+});
+
+// Staggered elements: kicker + title + each step.
+const N = 2 + steps.length;
+const FALLBACK_MS = 4600;
+const T = MotionLib.timing(P, N, FALLBACK_MS);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, FALLBACK_MS);
+
+const items = Array.prototype.slice.call(ol.querySelectorAll('li'));
+window.render = function(t){
+  MotionLib.glow(document.getElementById('glow'), t, T);
+  MotionLib.layer(kickerEl, t, {start: T.marks[0], dur: 520, travel: 14, T});
+  MotionLib.layer(titleEl, t, {start: T.marks[1], dur: 640, travel: 26, T});
+  items.forEach((li, i) => {
+    MotionLib.layer(li, t, {start: T.marks[2 + i], dur: 600, travel: 22, T});
+  });
+};
+window.render(0);
+}
+</script>
+</body>
+</html>

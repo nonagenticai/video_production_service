@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  checklist — rows that are judged one after another: each item's tick or cross
+  is drawn as an SVG stroke on its own mark.
+
+  PARAMS (window.PARAMS; all optional, strings unless noted)
+    kicker       ""      small caps line above the title (hidden when empty)
+    title        ""      heading (hidden when empty; fits to <= 2 lines)
+    items        []      up to 6 of {label: string, state: "yes" | "no"}; a plain
+                         string is a "yes" item. Items beyond 6 are dropped.
+    columns      0       number 0 | 1 | 2 — 0 picks 1 column for <= 3 items, else 2.
+                         Items fill COLUMN by column (so [yes,yes,no,no] reads as
+                         a "do" column and a "don't" column).
+    duration_ms  6000    number, clip length; pass the record request's value
+    marks        —       number[1 + items] ms: [header + every row (undecided),
+                         verdict of item 1, verdict of item 2, ...]. Beat 0 is
+                         pinned to 0. Absent: spread over the first half of the clip.
+    film_t_ms    0       number, this card's start on the film clock (ambient continuity)
+    caption_safe true    keep the layout above video_compiler's burned-in caption
+                         band (bottom 18% of the frame; derivation with compiler
+                         file:line in _motion_lib.js CAPTION); false = full frame
+    easing, stagger_ms, glow_drift — see _motion_lib.js (film kit)
+    bg, bg2, accent, accent2, text, muted, font_display, font_sans — brand tokens
+  All rows are visible, undecided, from the first frame; the mark decides them.
+  Continuous motion: the next undecided row's badge breathes; once decided, a
+  ripple leaves each badge in turn (one every ~1s).
+-->
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Inter','IBM Plex Sans',-apple-system,sans-serif;
+    --font-sans:'Inter','IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:calc(var(--u)*5) calc(var(--u)*7);gap:calc(var(--u)*3.2)}
+  header .fk{margin-bottom:calc(var(--u)*1.4)}
+  .list{display:grid;grid-auto-flow:column;gap:calc(var(--u)*2.6) calc(var(--u)*3.4)}
+  .item{position:relative;display:flex;align-items:center;gap:calc(var(--u)*2.8);min-width:0;
+    height:calc(var(--u)*var(--rowh));padding:0 calc(var(--u)*3.2);border-radius:calc(var(--u)*2);
+    background:color-mix(in srgb,var(--text) 5%,transparent)}
+  .item .edge{position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    box-shadow:inset 0 0 0 calc(var(--u)*.2) var(--tone)}
+  .item.yes{--tone:var(--accent)}
+  .item.no{--tone:var(--accent2)}
+  .badge{position:relative;flex:0 0 auto;width:calc(var(--u)*var(--badge));height:calc(var(--u)*var(--badge))}
+  .badge svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  .badge .ripple{position:absolute;inset:0;border-radius:50%;
+    box-shadow:0 0 0 calc(var(--u)*.3) var(--tone);opacity:0}
+  .lbl{flex:1 1 0;min-width:0;font-family:var(--font-display);font-weight:600;
+    font-size:calc(var(--u)*var(--lbl));line-height:1.1;letter-spacing:-.015em;color:var(--text);
+    text-wrap:balance}
+  @media (max-aspect-ratio:1/1){
+    .list{grid-auto-flow:row;grid-template-columns:1fr !important;grid-template-rows:none !important}
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <header id="header"><div class="fk" id="kicker"></div><div class="ft" id="title"></div></header>
+  <div class="list" id="list"></div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in copy: zero items in -> an empty card, never a fabricated list.
+  kicker:'', title:'', items:[], columns:0,
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+const MAX_ITEMS = 6;
+function normItem(it){
+  if (it == null) return {label:'', state:'yes'};
+  if (typeof it === 'string') return {label: it, state:'yes'};
+  return {label: it.label != null ? String(it.label) : '', state: it.state === 'no' ? 'no' : 'yes'};
+}
+const items = (Array.isArray(P.items) ? P.items : []).slice(0, MAX_ITEMS).map(normItem);
+const n = items.length;
+
+const F = MotionLib.film(P, {beats: 1 + n, fallbackMs: 6000});
+window.RENDER_DURATION_MS = F.dur;
+
+const $ = (id) => document.getElementById(id);
+const kickerEl = $('kicker'), titleEl = $('title'), headerEl = $('header'), listEl = $('list');
+if (P.kicker) kickerEl.textContent = String(P.kicker); else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = String(P.title); else titleEl.style.display = 'none';
+const hasHeader = !!(P.kicker || P.title);
+if (!hasHeader) headerEl.style.display = 'none';
+
+let cols = parseInt(P.columns, 10);
+if (cols !== 1 && cols !== 2) cols = n <= 3 ? 1 : 2;
+const rows = Math.max(1, Math.ceil(n / cols));
+listEl.style.gridTemplateColumns = 'repeat(' + cols + ',minmax(0,1fr))';
+listEl.style.gridTemplateRows = 'repeat(' + rows + ',auto)';
+// Row geometry (in u) scales down as rows are added so 2 rows fill the frame
+// and 6 still fit under a header.
+const budget = hasHeader ? 32 : 43;
+const rowh = Math.max(8.5, Math.min(20, (budget - (rows - 1) * 2.6) / rows));
+const rs = document.documentElement.style;
+rs.setProperty('--rowh', rowh.toFixed(2));
+rs.setProperty('--badge', Math.min(10.5, rowh * 0.56).toFixed(2));
+rs.setProperty('--lbl', Math.max(2.6, Math.min(4.4, rowh * 0.27)).toFixed(2));
+if (cols === 1) listEl.style.maxWidth = 'calc(var(--u)*62)';
+
+const TICK = MotionLib.TICK_D;
+const CROSS_A = 'M7.5 7.5l9 9', CROSS_B = 'M16.5 7.5l-9 9';
+const built = items.map((it) => {
+  const el = document.createElement('div');
+  el.className = 'item ' + it.state;
+  const strokes = it.state === 'yes'
+    ? '<path class="s1" d="' + TICK + '"/>'
+    : '<path class="s1" d="' + CROSS_A + '"/><path class="s2" d="' + CROSS_B + '"/>';
+  el.innerHTML =
+    '<div class="edge"></div>' +
+    '<div class="badge"><div class="ripple"></div>' +
+    '<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<circle class="ring0" cx="12" cy="12" r="10.6" stroke="var(--text)" stroke-opacity=".3" stroke-width="1.1"/>' +
+    '<circle class="disc" cx="12" cy="12" r="10.6" fill="var(--tone)" fill-opacity=".16" stroke="var(--tone)" stroke-width="1.5"/>' +
+    '<g stroke="var(--tone)" stroke-width="2.5">' + strokes + '</g></svg></div>' +
+    '<div class="lbl"></div>';
+  el.querySelector('.lbl').textContent = it.label;   // textContent for caller strings
+  listEl.appendChild(el);
+  return {
+    el, edge: el.querySelector('.edge'), ring0: el.querySelector('.ring0'), disc: el.querySelector('.disc'),
+    s1: el.querySelector('.s1'), s2: el.querySelector('.s2'), lbl: el.querySelector('.lbl'),
+    ripple: el.querySelector('.ripple'), badge: el.querySelector('.badge'), state: it.state,
+  };
+});
+
+F.ready(function(){
+  MotionLib.fit(titleEl, 2, 0.6);
+  built.forEach((b) => MotionLib.fit(b.lbl, 2, 0.62));
+});
+
+const RIPPLE_MS = 1000;
+window.render = function(t){
+  F.ambient(t);
+  F.enter(kickerEl, t, 0, {dur: 420, travel: 1});
+  F.enter(titleEl, t, 0, {dur: 560, travel: 2});
+  // Index of the next undecided row (its badge breathes while it waits).
+  let pending = -1;
+  for (let i = 0; i < n; i++){ if (t < F.marks[1 + i]){ pending = i; break; } }
+  const lastMark = n ? F.marks[n] : 0;
+  built.forEach((b, i) => {
+    // Beat 0: every row is on screen, undecided.
+    const e0 = F.p(t, 0, 520, i * 45);
+    b.el.style.opacity = e0;
+    // Beat 1+i: the verdict — disc pops, stroke draws, row takes its tone.
+    const v = F.p(t, 1 + i, 520);
+    const pop = MotionLib.ease('easeOutBack', (t - F.marks[1 + i]) / 460);
+    b.el.style.transform = 'translateY(calc(var(--u)*' + ((1 - e0) * 1.6).toFixed(3) + ')) scale(' + (1 + 0.012 * v).toFixed(4) + ')';
+    b.edge.style.opacity = (b.state === 'yes' ? 0.9 : 0.6) * v;
+    b.disc.style.opacity = v;
+    b.disc.style.transformOrigin = '12px 12px';
+    b.disc.style.transform = 'scale(' + (0.6 + 0.4 * pop).toFixed(4) + ')';
+    const wait = i === pending ? 0.5 + 0.5 * F.wave(t, 1500) : 0;
+    b.ring0.style.opacity = (1 - v) * (0.75 + 0.25 * wait);
+    b.ring0.style.transformOrigin = '12px 12px';
+    b.ring0.style.transform = 'scale(' + (1 + 0.07 * wait).toFixed(4) + ')';
+    MotionLib.draw(b.s1, F.p(t, 1 + i, 380, 120));
+    if (b.s2) MotionLib.draw(b.s2, F.p(t, 1 + i, 320, 330));
+    b.lbl.style.opacity = (b.state === 'no' ? 0.55 + 0.37 * v : 0.55 + 0.45 * v);
+    // After its verdict each badge sends a ripple when its turn comes round.
+    let rp = 0;
+    if (t >= F.marks[1 + i] + 300){
+      const cyc = F.loop(t - lastMark, RIPPLE_MS * n, -i / n) * n;   // 0..n, this row's turn is 0..1
+      rp = cyc < 1 ? cyc : 0;
+    }
+    b.ripple.style.opacity = rp > 0 ? 0.55 * (1 - rp) : 0;
+    b.ripple.style.transform = 'scale(' + (1 + 0.55 * rp).toFixed(4) + ')';
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

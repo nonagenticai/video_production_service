@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+  .stage{position:fixed;inset:0;overflow:hidden}
+  /* cover (default): the image is scaled up a touch beyond the frame so a pan
+     never reveals an edge, then nudged by window.render(t). object-fit:cover
+     keeps any source aspect ratio filling the frame (the orchestrator sizes the
+     source >= the target dims, so the cover-scale stays crisp). */
+  #kb{position:absolute;top:0;left:0;width:100%;height:100%;
+    object-fit:cover;transform-origin:center center;will-change:transform}
+  /* contain (fit=contain): a blurred, over-scaled copy of the same image fills
+     the frame as a backdrop (its crop is irrelevant — it's decorative), so the
+     SHARP layer can be object-fit:contain and stay fully visible with no black
+     bars. Used for frame-sized designed stills (slides / text cards) whose edge
+     content must never be cropped by the motion. */
+  #kbbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    transform:scale(1.18);filter:blur(28px) brightness(0.82);
+    transform-origin:center center;display:none;will-change:transform}
+  .fit-contain #kb{object-fit:contain}
+  .fit-contain #kbbg{display:block}
+</style>
+</head>
+<body>
+<div class="stage"><img id="kbbg" alt=""><img id="kb" alt=""></div>
+<script>
+const DEFAULTS = {
+  // A 1x1 transparent pixel so the template still renders standalone in a
+  // browser; the orchestrator injects a real data-URI image.
+  image:'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+  preset:'zoom_in', duration_ms:5000, fit:'cover',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+const img = document.getElementById('kb');
+const bg = document.getElementById('kbbg');
+img.src = P.image;
+bg.src = P.image;
+
+// fit=contain keeps the whole (frame-sized) image within the view window at all
+// times: the sharp layer is object-fit:contain and the motion is bounded so its
+// LARGEST scale is exactly frame-fill (1.0) — it can never grow past the frame
+// and crop edge content. A blurred cover copy hides the letterbox at <1.0.
+const FIT = (P.fit === 'contain') ? 'contain' : 'cover';
+if (FIT === 'contain') document.querySelector('.stage').classList.add('fit-contain');
+
+// A Ken Burns pan/zoom is one continuous transform over the whole clip, NOT a
+// card timeline — its length IS P.duration_ms, so it is set directly (routing it
+// through renderDurationMs would floor sub-1.5s pans at the lib's entrance
+// default and change the pan speed). The signature is consumed only for its
+// EASING (the pan/zoom curve) below; hold/exit/stagger don't apply to a still.
+const LEGACY_TOTAL = Math.max(500, Number(P.duration_ms) || 5000);
+const T = MotionLib.timing(P, 1, LEGACY_TOTAL);
+window.RENDER_DURATION_MS = LEGACY_TOTAL;
+
+// cover: headroom the image is over-scaled by so a pan/zoom has somewhere to
+// travel without exposing an edge (source is >= the frame, so this crops nothing
+// authored). contain: SAFE_MIN is the gentle pull-back — the sharp image never
+// exceeds 1.0 (frame-fill), so nothing is ever cropped.
+const PAD = 0.12;            // cover: 12% over-scale
+const ZOOM_TO = 1.14;        // cover: end scale for zoom_in (start for zoom_out)
+const SAFE_MIN = 0.92;       // contain: smallest scale (thin blurred ring), peak is 1.0
+
+function frameCover(e){
+  switch (P.preset){
+    case 'zoom_out': return {s: ZOOM_TO - (ZOOM_TO-1)*e, x:0, y:0};
+    case 'pan_left':  return {s:1+PAD, x: (1-e)* (PAD*50), y:0};   // start right → centre
+    case 'pan_right': return {s:1+PAD, x: -(1-e)*(PAD*50), y:0};   // start left → centre
+    case 'pan_up':    return {s:1+PAD, x:0, y: (1-e)*(PAD*50)};    // start low → centre
+    case 'pan_down':  return {s:1+PAD, x:0, y: -(1-e)*(PAD*50)};   // start high → centre
+    case 'zoom_in':
+    default:          return {s:1 + (ZOOM_TO-1)*e, x:0, y:0};
+  }
+}
+
+// contain: bounded to [SAFE_MIN, 1.0] so the sharp image never exceeds the frame.
+// Pans hold panScale and drift by EXACTLY its per-side slack ((1-panScale)*50),
+// so the sharp image's edge lands flush with the frame and is never cropped —
+// deriving travel FROM panScale keeps that invariant true for any SAFE_MIN.
+const panScale = (1 + SAFE_MIN) / 2;
+const panTravel = (1 - panScale) * 50;
+function frameContain(e){
+  switch (P.preset){
+    case 'zoom_out': return {s: 1 - (1-SAFE_MIN)*e, x:0, y:0};     // 1.0 → SAFE_MIN
+    case 'pan_left':  return {s: panScale, x: (1-e)*panTravel,  y:0};
+    case 'pan_right': return {s: panScale, x: -(1-e)*panTravel, y:0};
+    case 'pan_up':    return {s: panScale, x:0, y: (1-e)*panTravel};
+    case 'pan_down':  return {s: panScale, x:0, y: -(1-e)*panTravel};
+    case 'zoom_in':
+    default:          return {s: SAFE_MIN + (1-SAFE_MIN)*e, x:0, y:0};  // SAFE_MIN → 1.0
+  }
+}
+
+function frame(p){
+  // Easing routed through MotionLib so the signature's easing shapes the pan/zoom curve;
+  // default T.easing == easeOutCubic == the legacy ease, so params-less is byte-identical.
+  const e = MotionLib.ease(T.easing, p);
+  return FIT === 'contain' ? frameContain(e) : frameCover(e);
+}
+
+window.render = function(t){
+  const p = t / window.RENDER_DURATION_MS;
+  const f = frame(p);
+  // translate before scale (CSS applies right-to-left), so the % travel is in
+  // screen space and matches the slack exactly — a cover pan never reveals an
+  // edge, and a contain pan only drifts the sharp image over the blurred backdrop.
+  img.style.transform = `translate(${f.x}%, ${f.y}%) scale(${f.s})`;
+};
+window.render(0);
+</script>
+</body>
+</html>

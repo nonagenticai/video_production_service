@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--panel:#0f1a44;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden;background:var(--bg)}
+  .stage{position:fixed;inset:0}
+  .lt{position:absolute;left:6%;bottom:12%;display:flex;align-items:stretch;
+    overflow:hidden;will-change:transform,opacity}
+  .bar{width:1vmin;background:linear-gradient(var(--accent),var(--accent2));flex-shrink:0}
+  .panel{background:color-mix(in srgb,var(--panel) 92%,transparent);
+    padding:2.4vmin 4vmin 2.4vmin 3vmin;backdrop-filter:blur(4px)}
+  .name{font-family:var(--font-display);font-weight:600;font-size:5.2vmin;color:var(--text);
+    letter-spacing:-.01em;line-height:1;white-space:nowrap}
+  .role{font-size:2.6vmin;font-weight:600;letter-spacing:.04em;color:var(--accent);
+    margin-top:1.2vmin;white-space:nowrap;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="lt">
+    <div class="bar"></div>
+    <div class="panel">
+      <div class="name" data-bind="name"></div>
+      <div class="role" data-bind="role"></div>
+    </div>
+  </div>
+</div>
+<script>
+const DEFAULTS = {
+  name:'Jane Doe', role:'Founder & CEO',
+  bg:'#0B1437', panel:'#0f1a44', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+const r = document.documentElement.style;
+for (const [k,v] of Object.entries({bg:P.bg,panel:P.panel,accent:P.accent,accent2:P.accent2,text:P.text,muted:P.muted}))
+  if (v) r.setProperty('--'+k, v);
+document.querySelectorAll('[data-bind]').forEach(el=>{
+  const v = P[el.getAttribute('data-bind')];
+  if (v != null) el.textContent = v;
+});
+
+// Single-element lower-third: a bespoke left-slide (vmin units) plus a built-in
+// exit that MotionLib.layer() can't express, so the transform stays bespoke; we
+// adopt the shared easing + timeline reader and route the render duration through
+// the library. LEGACY_TOTAL = 4500 (verbatim, was window.RENDER_DURATION_MS).
+const N = 1;
+const LEGACY_TOTAL = 4500;
+const T = MotionLib.timing(P, N, LEGACY_TOTAL);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, LEGACY_TOTAL);
+
+// Honor each part of the signature timeline ONLY when the orchestrator actually
+// sent THAT key (gate per-key, not on the union of all motion keys — an
+// easing-only signature must not shift the reveal/hold/exit timing); otherwise
+// reproduce the legacy 700/3700/4400 timeline byte-for-byte. An empty-string
+// placeholder counts as absent (MotionLib.has).
+const RAW = window.PARAMS || {};
+const IN_END    = MotionLib.has(RAW, 'entrance_ms') ? T.entrance : 700;
+const OUT_START = MotionLib.has(RAW, 'hold_ms')     ? T.holdEnd  : 3700;
+const OUT_END   = MotionLib.has(RAW, 'exit_ms')     ? (T.exit > 0 ? T.holdEnd + T.exit : LEGACY_TOTAL) : 4400;
+window.render = function(t){
+  const lt = document.querySelector('.lt');
+  let shown;            // 0..1 reveal
+  if (t < IN_END) shown = MotionLib.ease(T.easing, t/IN_END);
+  else if (t < OUT_START) shown = 1;
+  else shown = 1 - MotionLib.ease(T.easing, (t-OUT_START)/(OUT_END-OUT_START));
+  lt.style.opacity = shown;
+  // Slide in from the left edge.
+  lt.style.transform = `translateX(${(shown-1)*8}vmin)`;
+};
+window.render(0);
+</script>
+</body>
+</html>

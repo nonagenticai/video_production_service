@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;--track:#1e2a5e;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:8% 9%;background:radial-gradient(120% 120% at 20% 0%,var(--bg2),var(--bg));}
+  h1{font-family:var(--font-display);font-weight:600;font-size:6vmin;letter-spacing:-.02em;
+    color:var(--text);margin-bottom:6vmin;opacity:0}
+  .bars{display:flex;flex-direction:column;gap:3.4vmin}
+  .bar{display:grid;grid-template-columns:14em 1fr auto;align-items:center;gap:3vmin}
+  .bar .label{font-size:3vmin;font-weight:600;color:var(--text)}
+  .track{height:3.4vmin;background:var(--track);border-radius:999px;overflow:hidden}
+  .fill{height:100%;width:0;border-radius:999px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .val{font-family:var(--font-display);font-weight:600;font-size:3.6vmin;color:var(--accent2);
+    min-width:3.5em;text-align:right;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="stage">
+  <h1 data-bind="title"></h1>
+  <div class="bars" id="bars"></div>
+</div>
+<script>
+const DEFAULTS = {
+  title:'By the numbers',
+  bars:[
+    {label:'Render cost', value:0, suffix:''},
+    {label:'Reproducible', value:100, suffix:'%'},
+    {label:'On-brand', value:100, suffix:'%'},
+  ],
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8', track:'#1e2a5e',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+const r = document.documentElement.style;
+for (const [k,v] of Object.entries({bg:P.bg,bg2:P.bg2,accent:P.accent,accent2:P.accent2,text:P.text,muted:P.muted,track:P.track}))
+  if (v) r.setProperty('--'+k, v);
+document.querySelectorAll('[data-bind]').forEach(el=>{
+  const v = P[el.getAttribute('data-bind')];
+  if (v != null) el.textContent = v;
+});
+const bars = (Array.isArray(P.bars) && P.bars.length ? P.bars : DEFAULTS.bars).slice(0,6);
+const max = Math.max(1, ...bars.map(b=>Number(b.value)||0));
+const wrap = document.getElementById('bars');
+bars.forEach(b=>{
+  const row = document.createElement('div');
+  row.className='bar';
+  row.innerHTML = `<div class="label">${b.label}</div>`+
+    `<div class="track"><div class="fill"></div></div>`+
+    `<div class="val"></div>`;
+  // The value is its final text from the start and fades in with its bar: a
+  // count-up from 0 showed "0%" on screen before the bar moved.
+  row.querySelector('.val').textContent = String(Number(b.value)||0) + (b.suffix||'');
+  wrap.appendChild(row);
+});
+
+const STAGGER=420, GROW=900;
+// LEGACY_TOTAL: the template's existing RENDER_DURATION formula, verbatim.
+const LEGACY_TOTAL = 1100 + bars.length*STAGGER + 1400;
+const T = MotionLib.timing(P, bars.length, LEGACY_TOTAL);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, LEGACY_TOTAL);
+// Honor the signature stagger only when the orchestrator actually sent stagger_ms
+// (gate on THAT key, not on any motion key — an easing-only signature must not
+// disturb the bar rhythm). timing() caps stagger to floor(entrance_ms/n) (=<420
+// for >3 bars), so the params-less path keeps the legacy fixed 420 for byte-identity.
+const stg = MotionLib.has(P, 'stagger_ms') ? T.stagger : STAGGER;
+window.render = function(t){
+  // Gated exit factor: no-op (1) when no exit param, so params-less is unchanged.
+  const xf = (T.exit>0 && t>T.holdEnd) ? 1 - MotionLib.ease('easeOutCubic',(t-T.holdEnd)/T.exit) : 1;
+  document.querySelector('h1').style.opacity = MotionLib.ease(T.easing,(t-100)/600) * xf;
+  const rows = wrap.querySelectorAll('.bar');
+  rows.forEach((row,i)=>{
+    const start = 700 + i*stg;
+    const p = MotionLib.ease(T.easing,(t-start)/GROW);
+    const b = bars[i];
+    const target = (Number(b.value)||0)/max*100;
+    row.querySelector('.fill').style.width = (p*target) + '%';
+    row.querySelector('.val').style.opacity = p;
+    if (xf < 1) row.style.opacity = xf;
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

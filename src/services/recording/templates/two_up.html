@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  two_up — two columns under an optional header.
+
+  PARAMS (window.PARAMS; all optional)
+    kicker, title      strings (hidden when empty)
+    two_up             {left, right}; each side a string (body) or
+                       {title, body} — and, in the "panels" layout, also
+                       {icon: name from _icons.js, state: "chosen" | "rejected"}
+    layout             absent/"columns" = the original accent-bar columns
+                       (unchanged); "panels" = the film layout below
+    marks              number[4] ms: [kicker, title, left, right]
+    brand tokens + motion signature — see _motion_lib.js
+
+  layout "panels" (film kit: duration_ms, film_t_ms, marks, caption_safe — see _motion_lib.js):
+    caption_safe defaults to true: the layout stays above video_compiler's burned-in
+    caption band (bottom 18%; derivation in _motion_lib.js CAPTION).
+    two real panels with a drawn divider. Both panels (icon + title, undecided)
+    are on screen with the title from the first frame; marks[2] / marks[3] deliver
+    each side's verdict — "chosen" takes the accent, a drawn tick and a lift;
+    "rejected" loses its icon's weight, gets an accent2 outline, a drawn cross
+    and a strike through its (still fully legible) title. A side
+    without `state` simply brightens on its mark.
+    divider_label      string, optional text in the divider node (default none)
+    Continuous motion: the undecided panel's outline breathes; the chosen
+    panel's badge keeps sending a ripple and its glow breathes.
+-->
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:8% 9%;background:radial-gradient(120% 120% at 80% 0%,var(--bg2),var(--bg));
+    background-size:140% 140%;animation:bgShimmer 18s ease-in-out infinite}
+  .glow{position:absolute;width:48vmin;height:48vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);left:-14vmin;bottom:-16vmin;pointer-events:none;
+    will-change:transform,opacity}
+  @keyframes bgShimmer{
+    0%{background-position:80% 0%}
+    50%{background-position:72% 8%}
+    100%{background-position:80% 0%}}
+  header{margin-bottom:5vmin}
+  .kicker{font-size:2.2vmin;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:2.2vmin}
+  h1{font-family:var(--font-display);font-weight:600;font-size:5.6vmin;line-height:1.04;
+    letter-spacing:-.02em;color:var(--text);max-width:20em}
+  /* Two columns; wrap+stack on tall/vertical formats. */
+  .split{display:flex;flex-wrap:wrap;gap:5vmin;align-items:stretch}
+  .col{flex:1 1 30em;min-width:0;position:relative;padding:4vmin 4vmin 4vmin 5vmin;
+    border-radius:2vmin;background:color-mix(in srgb,var(--bg2) 60%,transparent)}
+  .col::before{content:"";position:absolute;left:0;top:2vmin;bottom:2vmin;width:.6vmin;
+    border-radius:.6vmin}
+  .col.left::before{background:var(--accent)}
+  .col.right::before{background:var(--accent2)}
+  .col .t{font-family:var(--font-display);font-weight:600;font-size:3.4vmin;line-height:1.1;
+    color:var(--text);margin-bottom:2vmin}
+  .col .b{font-size:2.6vmin;line-height:1.4;color:var(--muted)}
+  [data-anim]{opacity:0}
+  /* ---- layout:"panels" (film kit) — inert unless body.film is set ---- */
+  .pwrap{display:none}
+  body.film header.legacy,body.film .split{display:none}
+  body.film .stage{padding:calc(var(--u)*5) calc(var(--u)*6)}
+  body.film .pwrap{display:flex;flex-direction:column;gap:calc(var(--u)*4.4);width:100%}
+  .pwrap .fk{margin-bottom:calc(var(--u)*1.4)}
+  .panels{display:flex;align-items:stretch;gap:calc(var(--u)*2.2)}
+  .panel{position:relative;flex:1 1 0;min-width:0;min-height:calc(var(--u)*31);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
+    gap:calc(var(--u)*3);padding:calc(var(--u)*3) calc(var(--u)*3);border-radius:calc(var(--u)*2.4);
+    background:color-mix(in srgb,var(--text) 5%,transparent)}
+  .panel .edge0,.panel .edge1{position:absolute;inset:0;border-radius:inherit;pointer-events:none}
+  .panel .edge0{box-shadow:inset 0 0 0 calc(var(--u)*.2) color-mix(in srgb,var(--text) 30%,transparent)}
+  .panel.chosen .edge1{background:color-mix(in srgb,var(--accent) 11%,transparent);
+    box-shadow:inset 0 0 0 calc(var(--u)*.36) var(--accent),0 0 calc(var(--u)*5) color-mix(in srgb,var(--accent) 32%,transparent)}
+  .panel.rejected .edge1{background:color-mix(in srgb,var(--bg) 45%,transparent);
+    box-shadow:inset 0 0 0 calc(var(--u)*.28) color-mix(in srgb,var(--accent2) 75%,transparent)}
+  .panel .tile{position:relative;width:calc(var(--u)*13);height:calc(var(--u)*13);border-radius:calc(var(--u)*3.2);
+    display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--text) 8%,transparent)}
+  .panel .tile .g{position:absolute;inset:22%;display:flex}
+  .panel .pt{position:relative;display:inline-block;max-width:100%;font-family:var(--font-display);font-weight:700;
+    font-size:calc(var(--u)*4.1);line-height:1.1;letter-spacing:-.02em;color:var(--text);text-wrap:balance}
+  /* The strike is a per-LINE background on the inline title text, so a title
+     that wraps is struck through on every line. */
+  .panel.rejected .ptx{-webkit-box-decoration-break:clone;box-decoration-break:clone;
+    background-image:linear-gradient(var(--accent2),var(--accent2));background-repeat:no-repeat;
+    background-position:0 58%;background-size:0% calc(var(--u)*.32)}
+  .panel .pb{font-size:calc(var(--u)*2.5);line-height:1.3;color:var(--muted);max-width:26em}
+  .panel .badge{position:absolute;right:calc(var(--u)*-1.8);top:calc(var(--u)*-1.8);
+    width:calc(var(--u)*7);height:calc(var(--u)*7)}
+  .panel .badge svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  .panel .badge .ripple{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 calc(var(--u)*.3) var(--accent);opacity:0}
+  .pdiv{position:relative;flex:0 0 calc(var(--u)*5);display:flex;align-items:center;justify-content:center}
+  .pdiv .line{position:absolute;top:0;bottom:0;left:50%;width:calc(var(--u)*.2);margin-left:calc(var(--u)*-.1);
+    background:linear-gradient(transparent,color-mix(in srgb,var(--text) 40%,transparent) 20%,color-mix(in srgb,var(--text) 40%,transparent) 80%,transparent);
+    transform-origin:center}
+  .pdiv .knot{position:relative;min-width:calc(var(--u)*1.6);height:calc(var(--u)*1.6);border-radius:calc(var(--u)*3);
+    background:var(--bg);box-shadow:0 0 0 calc(var(--u)*.24) color-mix(in srgb,var(--text) 55%,transparent);
+    font-weight:700;font-size:calc(var(--u)*2);line-height:1;color:var(--text);display:flex;align-items:center;justify-content:center}
+  .pdiv .knot.lbl{height:auto;padding:calc(var(--u)*.9) calc(var(--u)*1.1)}
+  @media (max-aspect-ratio:1/1){
+    .panels{flex-direction:column}
+    .pdiv{flex-basis:calc(var(--u)*3)}
+    .pdiv .line{top:50%;bottom:auto;left:0;right:0;width:auto;height:calc(var(--u)*.2);margin:0}
+    .panel{min-height:calc(var(--u)*20)}
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow" id="glow"></div>
+  <header class="legacy">
+    <span class="kicker" id="kicker" data-anim></span>
+    <h1 id="title" data-anim></h1>
+  </header>
+  <div class="split">
+    <div class="col left" id="left" data-anim></div>
+    <div class="col right" id="right" data-anim></div>
+  </div>
+  <div class="pwrap" id="pwrap">
+    <div id="pheader"><div class="fk" id="pkicker"></div><div class="ft" id="ptitle"></div></div>
+    <div class="panels"><div class="panel" id="pleft"></div>
+      <div class="pdiv" id="pdiv"><div class="line"></div><div class="knot" id="pknot"></div></div>
+      <div class="panel" id="pright"></div></div>
+  </div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in kicker/title/column copy: a caller that omits content must
+  // get an empty render, never a fabricated "old way / new way" pitch (see
+  // fix/strip-fabricated-template-defaults).
+  kicker:'', title:'',
+  two_up:{
+    left:{title:'', body:''},
+    right:{title:'', body:''},
+  },
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+const tu = (P.two_up && typeof P.two_up === 'object') ? P.two_up : DEFAULTS.two_up;
+const kickerEl = document.getElementById('kicker');
+const titleEl = document.getElementById('title');
+
+if (P.layout === 'panels') {
+  // ================= layout:"panels" — film kit =================
+  const F = MotionLib.film(P, {beats: 4, fallbackMs: 6000});
+  window.RENDER_DURATION_MS = F.dur;
+  const $ = (id) => document.getElementById(id);
+  const pk = $('pkicker'), pt = $('ptitle');
+  if (P.kicker) pk.textContent = String(P.kicker); else pk.style.display = 'none';
+  if (P.title) pt.textContent = String(P.title); else pt.style.display = 'none';
+  if (!P.kicker && !P.title) $('pheader').style.display = 'none';
+  const knot = $('pknot');
+  if (P.divider_label){ knot.textContent = String(P.divider_label); knot.classList.add('lbl'); }
+
+  const TICK = MotionLib.TICK_D, CA = 'M7.5 7.5l9 9', CB = 'M16.5 7.5l-9 9';
+  function panelSide(s){
+    if (s == null) return {title:'', body:'', icon:'', state:''};
+    if (typeof s === 'string') return {title:'', body:s, icon:'', state:''};
+    const st = s.state === 'chosen' || s.state === 'rejected' ? s.state : '';
+    return {title: s.title != null ? String(s.title) : '', body: s.body != null ? String(s.body) : '',
+            icon: s.icon != null ? String(s.icon) : '', state: st};
+  }
+  function build(el, side){
+    if (!side.title && !side.body && !side.icon){ el.style.display = 'none'; return null; }
+    if (side.state) el.classList.add(side.state);
+    const tone = side.state === 'rejected' ? 'var(--accent2)' : 'var(--accent)';
+    let h = '<div class="edge0"></div><div class="edge1"></div>';
+    // Icon NAMES resolve through the fixed ICONS table; caller text goes in via textContent.
+    const g0 = iconSvg(side.icon, {size:'100%', color:'var(--text)', strokeWidth:1.6});
+    if (g0) h += '<div class="tile"><div class="g g0">' + g0 + '</div><div class="g g1">' +
+      iconSvg(side.icon, {size:'100%', color: tone, strokeWidth:1.6}) + '</div></div>';
+    h += '<div class="pt"><span class="ptx"></span></div><div class="pb"></div>';
+    if (side.state) h += '<div class="badge"><div class="ripple"></div>' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<circle cx="12" cy="12" r="11" fill="' + (side.state === 'chosen' ? 'var(--accent)' : 'var(--bg)') + '" stroke="' + tone + '" stroke-width="1.6"/>' +
+      '<g stroke="' + (side.state === 'chosen' ? 'var(--bg)' : tone) + '" stroke-width="2.6">' +
+      (side.state === 'chosen' ? '<path class="s1" d="' + TICK + '"/>'
+        : '<path class="s1" d="' + CA + '"/><path class="s2" d="' + CB + '"/>') +
+      '</g></svg></div>';
+    el.innerHTML = h;
+    const q = (c) => el.querySelector(c);
+    q('.ptx').textContent = side.title;
+    if (!side.title) q('.pt').style.display = 'none';
+    if (side.body) q('.pb').textContent = side.body; else q('.pb').style.display = 'none';
+    return {el, side, edge0: q('.edge0'), edge1: q('.edge1'), g0: q('.g0'), g1: q('.g1'), pt: q('.pt'),
+            ptx: q('.ptx'), badge: q('.badge'), s1: q('.s1'), s2: q('.s2'), ripple: q('.ripple'), pb: q('.pb')};
+  }
+  const panels = [build($('pleft'), panelSide(tu.left)), build($('pright'), panelSide(tu.right))];
+  if (!panels[0] || !panels[1]) $('pdiv').style.display = 'none';
+  F.ready(function(){
+    MotionLib.fit(pt, 2, 0.6);
+    panels.forEach((b) => { if (b) MotionLib.fit(b.pt, 2, 0.7); });
+  });
+
+  window.render = function(t){
+    F.ambient(t);
+    // marks[0] (kicker) and marks[1] (title) both resolve inside the first
+    // half-second: the header and both undecided panels open the card together.
+    F.enter(pk, t, 0, {dur: 420, travel: 1});
+    F.enter(pt, t, 0, {dur: 560, travel: 2});
+    const dv = F.p(t, 0, 600, 120);
+    $('pdiv').style.opacity = dv;
+    $('pdiv').firstElementChild.style.transform = 'scaleY(' + dv + ')';
+    knot.style.transform = 'scale(' + (1 + 0.08 * F.wave(t, 2200)).toFixed(4) + ')';
+    let pending = -1;
+    for (let i = 0; i < 2; i++){ if (panels[i] && t < F.marks[2 + i]){ pending = i; break; } }
+    panels.forEach((b, i) => {
+      if (!b) return;
+      const e0 = F.p(t, 0, 560, 60 + i * 90);
+      const v = F.p(t, 2 + i, 560);
+      const st = b.side.state;
+      const wait = i === pending ? 0.5 + 0.5 * F.wave(t, 1600) : 0;
+      const breathe = st === 'chosen' ? F.wave(t, 2600) * v : 0;
+      const scale = st === 'chosen' ? 1 + 0.03 * v + 0.006 * breathe : st === 'rejected' ? 1 - 0.04 * v : 1;
+      b.el.style.opacity = e0;
+      b.el.style.transform = 'translateY(calc(var(--u)*' + ((1 - e0) * 2).toFixed(3) + ')) scale(' + scale.toFixed(4) + ')';
+      b.edge0.style.opacity = (1 - v) * (0.7 + 0.3 * wait) + (st ? 0 : v);
+      b.edge1.style.opacity = st === 'chosen' ? v * (0.9 + 0.1 * breathe) : v;
+      // Icons: chosen recolours to the accent; rejected fades back. The TITLE of
+      // a rejected side stays at full strength — the strike says it, not a dim.
+      if (b.g0){
+        b.g0.style.opacity = st === 'chosen' ? 1 - v : st === 'rejected' ? 1 - 0.6 * v : 1;
+        b.g1.style.opacity = st === 'chosen' ? v : 0;
+      }
+      b.pt.style.opacity = st === 'rejected' ? 0.72 + 0.2 * v : 0.72 + 0.28 * v;
+      if (st === 'rejected') b.ptx.style.backgroundSize = (100 * F.p(t, 2 + i, 520, 260)).toFixed(2) + '% calc(var(--u)*.32)';
+      b.pb.style.opacity = 0.5 + 0.5 * v;
+      if (b.badge){
+        const pop = MotionLib.ease('easeOutBack', (t - F.marks[2 + i] - 80) / 460);
+        b.badge.style.opacity = MotionLib.clamp01((t - F.marks[2 + i] - 80) / 160);
+        b.badge.style.transform = 'scale(' + (0.5 + 0.5 * pop).toFixed(4) + ')';
+        MotionLib.draw(b.s1, F.p(t, 2 + i, 360, 240));
+        if (b.s2) MotionLib.draw(b.s2, F.p(t, 2 + i, 300, 430));
+        const rp = st === 'chosen' && t > F.marks[2 + i] + 600 ? F.loop(t - F.marks[2 + i], 1800) : 0;
+        b.ripple.style.opacity = rp > 0 ? 0.6 * (1 - rp) : 0;
+        b.ripple.style.transform = 'scale(' + (1 + 0.7 * rp).toFixed(4) + ')';
+      }
+    });
+  };
+  window.render(0);
+} else {
+  // ================= original columns layout (unchanged) =================
+// Optional header (kicker + title) above the split.
+if (P.kicker) kickerEl.textContent = P.kicker; else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = P.title; else titleEl.style.display = 'none';
+
+// Normalize a side: accept a plain string OR {title, body}.
+function normSide(s){
+  if (s == null) return {title:'', body:''};
+  if (typeof s === 'string') return {title:'', body:s};
+  return {title:s.title != null ? String(s.title) : '', body:s.body != null ? String(s.body) : ''};
+}
+const sides = {left: normSide(tu.left), right: normSide(tu.right)};
+
+// A side with no title and no body is a fully empty column: hide it rather
+// than render an empty bordered box (a half-built skeleton). Returns whether
+// the column ended up with content.
+function fillCol(el, side){
+  if (!side.title && !side.body){ el.style.display = 'none'; return false; }
+  if (side.title){
+    const t = document.createElement('div');
+    t.className = 't';
+    t.textContent = side.title;
+    el.appendChild(t);
+  }
+  if (side.body){
+    const b = document.createElement('div');
+    b.className = 'b';
+    b.textContent = side.body;
+    el.appendChild(b);
+  }
+  return true;
+}
+const leftEl = document.getElementById('left');
+const rightEl = document.getElementById('right');
+const hasLeft = fillCol(leftEl, sides.left);
+const hasRight = fillCol(rightEl, sides.right);
+// Neither column has content -> hide the whole split row too.
+if (!hasLeft && !hasRight) document.querySelector('.split').style.display = 'none';
+
+// Staggered elements: kicker + title + left column + right column.
+const N = 4;
+const FALLBACK_MS = 4200;
+const T = MotionLib.timing(P, N, FALLBACK_MS);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, FALLBACK_MS);
+
+window.render = function(t){
+  MotionLib.glow(document.getElementById('glow'), t, T);
+  MotionLib.layer(kickerEl, t, {start: T.marks[0], dur: 520, travel: 14, T});
+  MotionLib.layer(titleEl, t, {start: T.marks[1], dur: 640, travel: 26, T});
+  MotionLib.layer(leftEl, t, {start: T.marks[2], dur: 640, travel: 24, T});
+  MotionLib.layer(rightEl, t, {start: T.marks[3], dur: 640, travel: 24, T});
+};
+window.render(0);
+}
+</script>
+</body>
+</html>

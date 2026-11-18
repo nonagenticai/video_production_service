@@ -1,0 +1,31 @@
+services:
+  # PostgreSQL — test database (pytest only, never the app)
+  #
+  # Mirrors the CI container: the gitops archetype runs a stock postgres:18 with
+  # POSTGRES_USER=ci_test, which makes ci_test a SUPERUSER. Matching that locally
+  # keeps local runs honest about anything needing elevated rights.
+  #
+  # tmpfs, no named volume: test data is worthless by definition, and a persisted
+  # volume is how a stale schema survives across model changes.
+  video_production_service_test_postgres:
+    image: postgres:18-alpine
+    container_name: video_production_service_test_postgres
+    environment:
+      # Throwaway local-test credentials, not a secret. Must match the local
+      # default in tests/conftest.py and scripts/ci-local.sh.
+      POSTGRES_USER: ci_test
+      POSTGRES_PASSWORD: ci_test_password_secure # pragma: allowlist secret
+      POSTGRES_DB: video_production_service_ci
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    ports:
+      - "5476:5432"
+    # postgres:18 keeps data in a versioned subdir (/var/lib/postgresql/18/docker)
+    # and REFUSES TO START if you mount over the old /var/lib/postgresql/data path.
+    # The image's own guidance is a single mount at /var/lib/postgresql.
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ci_test -d video_production_service_ci"]
+      interval: 2s
+      timeout: 3s
+      retries: 15

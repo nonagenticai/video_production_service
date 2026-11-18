@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;text-align:center;padding:8% 10%;
+    background:radial-gradient(120% 120% at 30% 20%,var(--bg2),var(--bg));
+    background-size:140% 140%;animation:bgShimmer 18s ease-in-out infinite}
+  .glow{position:absolute;border-radius:50%;filter:blur(120px);opacity:.22;pointer-events:none;
+    will-change:transform,opacity}
+  .glow.a{width:46vmin;height:46vmin;background:var(--accent);left:-12vmin;top:-14vmin;
+    animation:driftA 11s ease-in-out infinite}
+  .glow.b{width:46vmin;height:46vmin;background:var(--accent2);right:-14vmin;bottom:-16vmin;
+    animation:driftB 13s ease-in-out infinite}
+  /* Slow, infinite ambient motion — captured deterministically by the recorder
+     seeking Animation.currentTime per frame, so no JS needed. Keeps the card
+     feeling alive during the ~4s capture window. */
+  @keyframes driftA{
+    0%{transform:translate(0,0) scale(1);opacity:.20}
+    50%{transform:translate(5vmin,4vmin) scale(1.12);opacity:.30}
+    100%{transform:translate(0,0) scale(1);opacity:.20}}
+  @keyframes driftB{
+    0%{transform:translate(0,0) scale(1.05);opacity:.18}
+    50%{transform:translate(-6vmin,-3vmin) scale(.92);opacity:.28}
+    100%{transform:translate(0,0) scale(1.05);opacity:.18}}
+  @keyframes bgShimmer{
+    0%{background-position:30% 20%}
+    50%{background-position:38% 30%}
+    100%{background-position:30% 20%}}
+  .eyebrow{font-size:2.1vmin;font-weight:700;letter-spacing:.28em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:3vmin}
+  h1{font-family:var(--font-display);font-weight:600;font-size:8.4vmin;line-height:1.02;
+    letter-spacing:-.02em;color:var(--text);max-width:18em}
+  .rule{height:.5vmin;background:linear-gradient(90deg,var(--accent),var(--accent2));
+    border-radius:2px;margin:4vmin 0;width:0}
+  .subtitle{font-family:var(--font-display);font-style:italic;font-weight:500;font-size:3.4vmin;
+    color:var(--muted);max-width:24em;line-height:1.3}
+  .chapter{position:absolute;top:6vmin;font-size:2vmin;font-weight:700;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--muted)}
+  .brand{position:absolute;bottom:6vmin;font-family:var(--font-display);font-weight:600;
+    font-size:2.6vmin;color:var(--text);opacity:.0}
+  [data-anim]{opacity:0}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow a"></div><div class="glow b"></div>
+  <span class="chapter" data-bind="chapter" data-anim></span>
+  <span class="eyebrow" data-bind="eyebrow" data-anim></span>
+  <h1 data-bind="title" data-anim></h1>
+  <div class="rule"></div>
+  <p class="subtitle" data-bind="subtitle" data-anim></p>
+  <span class="brand" data-bind="brand_mark"></span>
+</div>
+<script>
+const DEFAULTS = {
+  eyebrow:'The non-agentic AI system', title:'From Prompt to Production',
+  subtitle:'The process holds the agency, not the model.',
+  chapter:'', brand_mark:'nonagentic.ai',
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+const r = document.documentElement.style;
+for (const [k,v] of Object.entries({bg:P.bg,bg2:P.bg2,accent:P.accent,accent2:P.accent2,text:P.text,muted:P.muted,
+    'font-display':P.font_display,'font-sans':P.font_sans}))
+  if (v) r.setProperty('--'+k, v);
+document.querySelectorAll('[data-bind]').forEach(el=>{
+  const v = P[el.getAttribute('data-bind')];
+  if (v != null) el.textContent = v;
+});
+// Hide an empty chapter entirely.
+if (!P.chapter) document.querySelector('.chapter').style.display='none';
+
+// element, start(ms), dur(ms), travel(px)
+const TL = [
+  ['.chapter', 100, 600, 30],
+  ['.eyebrow', 350, 600, 34],
+  ['h1',       650, 850, 56],
+  ['.subtitle',1250, 750, 40],
+];
+// Motion timeline from the orchestrator's signature (VP-5). MotionLib defaults
+// reproduce the legacy 4.2s hand-tuned feel byte-for-byte when no `motion` block
+// is present; a signature drives easing/exit/duration + a depth parallax.
+const LEGACY_TOTAL = 4200;
+const T = MotionLib.timing(P, TL.length, LEGACY_TOTAL);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, LEGACY_TOTAL);
+const glows = document.querySelectorAll('.glow');
+// Exit factor (1 => not exiting) shared by the bespoke h1/rule/brand elements;
+// 0 when no exit window (params-less), so those renders are unchanged.
+function exitFactor(t){
+  return (T.exit > 0 && t > T.holdEnd) ? 1 - MotionLib.ease('easeOutCubic', (t-T.holdEnd)/T.exit) : 1;
+}
+window.render = function(t){
+  const xf = exitFactor(t);
+  for (const [sel, start, dur, travel] of TL){
+    const el = document.querySelector(sel);
+    if (!el) continue;
+    if (sel === 'h1'){
+      // Headline keeps its punchier entrance (rise + scale-in + blur-in); the
+      // shared easing now drives it, and it slides+fades out on exit.
+      const p = MotionLib.ease(T.easing, (t-start)/dur);
+      const scale = 0.96 + p*0.04;
+      const blur = (1-p)*6;
+      el.style.opacity = p*xf;
+      el.style.transform = `translateY(${(1-p)*travel + (1-xf)*travel}px) scale(${scale})`;
+      el.style.filter = `blur(${blur}px)`;
+    } else {
+      // Plain rows go through the shared entrance+exit primitive.
+      MotionLib.layer(el, t, {start, dur, travel, T});
+    }
+  }
+  // Accent rule wipes in with the headline, and back out on exit.
+  const rp = MotionLib.ease(T.easing, (t-900)/700);
+  document.querySelector('.rule').style.width = (rp*26*xf) + 'vmin';
+  // Brand mark fades up at the end, and out on exit.
+  document.querySelector('.brand').style.opacity = MotionLib.ease(T.easing, (t-2000)/800) * xf;
+  // Depth parallax on the two ambient glows — only when the signature asks for it
+  // (parallax defaults to 0 => the CSS @keyframes drift is left untouched).
+  if (T.parallax > 0){
+    const pp = MotionLib.clamp01(t / (T.holdEnd || 1));
+    glows.forEach((g,i)=>{
+      const dir = i === 0 ? 1 : -1;
+      g.style.transform = `translate(${dir*(0.5-pp)*9*T.parallax}vmin,${dir*(0.5-pp)*6*T.parallax}vmin) scale(1.06)`;
+    });
+  }
+};
+window.render(0);
+</script>
+</body>
+</html>

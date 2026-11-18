@@ -1,0 +1,40 @@
+# Allowlist for scripts/ci/no-private-refs.sh — a security decision, not a convenience.
+#
+# One rule per line, `path/glob:pattern  # justification`. The glob matches the repo-relative
+# path; the pattern is an ERE matched against the whole `git grep` hit (`path:line:text`).
+# Blank lines and `#` comments are ignored. A justification is mandatory in review.
+#
+# ⛔ Do NOT add an entry to keep a real internal hostname, address or private repository path
+# in a public tree. Remove it instead. An entry is only for a string that *looks* private but
+# is not: a documented loopback example, a placeholder, or a term that collides with a rule.
+#
+# The guard and this file necessarily spell the patterns out; the guard excludes both from
+# its own scan. Everything else is scanned.
+#
+# No entries by default. An empty file that fails the build is the correct starting state.
+
+# ── the SSRF/private-range/lfi guards and their tests ────────────────────────────────
+# The .internal names and CGNAT addresses below are the values the guard must REJECT;
+# no estate host is named. Precedent: w2v_common tests/test_net_safe_fetch.py.
+src/utils/url_guard.py:\.internal([^A-Za-z0-9_(]|$)
+src/utils/url_guard.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/test_recording_url_guard.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/test_recording_url_guard.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/test_tenant_url_ssrf_schemas.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/test_tenant_url_ssrf_schemas.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/test_playwright_guard_and_webhook_ssrf.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/test_playwright_guard_and_webhook_ssrf.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/integration/test_playwright_ssrf_guard.py:\.internal([^A-Za-z0-9_(]|$)
+tests/integration/test_playwright_ssrf_guard.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/compilation/test_compile_sink_guards.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/compilation/test_compile_sink_guards.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/compilation/test_compiler_service_process_job.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/compilation/test_compiler_service_process_job.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/compilation/test_local_path_confinement.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/compilation/test_local_path_confinement.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+src/api/schemas/recording.py:\.internal([^A-Za-z0-9_(]|$)
+src/api/schemas/recording.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+src/shared/security/playwright_guard.py:\.internal([^A-Za-z0-9_(]|$)
+src/shared/security/playwright_guard.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+tests/unit/compilation/test_compile_lfi_guards.py:\.internal([^A-Za-z0-9_(]|$)
+tests/unit/compilation/test_compile_lfi_guards.py:100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.

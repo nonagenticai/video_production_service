@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  levels — a heading and hero stat beside a ladder of graduated levels that
+  fills from the lowest rung to the highest, with only the two END rungs labelled.
+  The lowest rung is drawn in accent2, the others in stepped strengths of accent.
+
+  PARAMS (window.PARAMS; all optional, strings unless noted)
+    kicker       ""      small caps line above the heading (hidden when empty)
+    title        ""      heading above the stat (hidden when empty; fits to <= 2 lines)
+    value        ""      the stat number, e.g. "30" (shown as given — never counted up)
+    suffix       ""      glyph after the number, e.g. "+" or "%" (hidden when empty)
+    label        ""      caption under the number
+    levels       5       number 2..8 — how many rungs the ladder has
+    from_label   ""      label under the LOWEST rung
+    to_label     ""      label under the HIGHEST rung
+    duration_ms  6000    number, clip length; pass the record request's value
+    marks        —       number[4] ms: [kicker + title + ladder + stat frame, stat value,
+                         from_label + fill starts, to_label + fill reaches the top].
+                         Beat 0 is pinned to 0. Absent: spread over the first half
+                         of the clip.
+    caption_safe true    keep everything above the burned-in caption band
+                         (MotionLib.CAPTION_SAFE_FRAC); false = full-frame layout
+    film_t_ms    0       number, this card's start on the film clock (ambient continuity)
+    easing, stagger_ms, glow_drift — see _motion_lib.js (film kit)
+    bg, bg2, accent, accent2, text, muted, font_display, font_sans — brand tokens
+  Frame 0 already shows the whole composition: heading, every rung of the ladder
+  (dim, undecided) with both end labels, and the stat's frame — the label plus the
+  dim stat at its FINAL value ("30+"). Each later beat only CHANGES what is there:
+  the stat lights on marks[1], the rungs fill on marks[2]..marks[3].
+  The stat is never a placeholder: whatever frame first shows it shows the real
+  number. A count-up from zero put "00+" on screen for seconds before the number
+  was spoken (frame QA, run 01a11295), and a dim "00" reads as a wrong number,
+  not as an empty frame.
+  Continuous motion after the last entrance: a level marker keeps stepping up and
+  down the ladder (one rung per ~0.9s), lighting the rung it stands on.
+-->
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Inter','IBM Plex Sans',-apple-system,sans-serif;
+    --font-sans:'Inter','IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;align-items:center;
+    padding:calc(var(--u)*5) calc(var(--u)*7);gap:calc(var(--u)*6)}
+  .left{flex:0 0 calc(var(--u)*36);min-width:0;align-self:stretch;display:flex;flex-direction:column;
+    justify-content:space-between;padding:calc(var(--u)*2.2) 0 calc(var(--u)*1.2)}
+  .left .fk{margin-bottom:calc(var(--u)*1.4)}
+  .num{display:flex;align-items:flex-start;font-family:var(--font-display);font-weight:700;
+    line-height:.86;letter-spacing:-.05em;color:var(--text);font-variant-numeric:tabular-nums}
+  .num .value{font-size:calc(var(--u)*21)}
+  .num .suffix{font-size:calc(var(--u)*11.5);color:var(--accent2);margin-left:calc(var(--u)*.6);
+    margin-top:calc(var(--u)*.6);letter-spacing:0}
+  .label{font-size:calc(var(--u)*4);font-weight:600;color:var(--text);
+    margin-top:calc(var(--u)*2.2);line-height:1.1}
+  .ladder{flex:1 1 0;min-width:0;display:flex;flex-direction:column}
+  .rungs{position:relative;display:flex;align-items:flex-end;height:calc(var(--u)*34)}
+  .rung{position:relative;flex:1 1 0;margin:0 calc(var(--u)*.7);border-radius:calc(var(--u)*1.1);
+    box-shadow:inset 0 0 0 calc(var(--u)*.18) color-mix(in srgb,var(--text) 26%,transparent);
+    background:color-mix(in srgb,var(--text) 5%,transparent);overflow:hidden}
+  .rung .fill{position:absolute;inset:0;transform-origin:center bottom;transform:scaleY(0)}
+  .rung .lit{position:absolute;inset:0;background:#fff;opacity:0}
+  .marker{position:absolute;width:calc(var(--u)*2.6);height:calc(var(--u)*2.6);border-radius:50%;
+    margin-left:calc(var(--u)*-1.3);background:var(--bg);
+    box-shadow:0 0 0 calc(var(--u)*.5) var(--text),0 0 calc(var(--u)*2.4) calc(var(--u)*.4) color-mix(in srgb,var(--accent) 70%,transparent);
+    opacity:0}
+  .base{height:calc(var(--u)*.3);margin:calc(var(--u)*1.3) calc(var(--u)*.7) 0;border-radius:1vmin;
+    background:linear-gradient(90deg,var(--accent2) 0 18%,var(--accent) 24% 100%);transform-origin:left center}
+  .ends{display:flex;justify-content:space-between;margin:calc(var(--u)*1.5) calc(var(--u)*.7) 0;
+    font-size:calc(var(--u)*3.6);font-weight:700;line-height:1.1;letter-spacing:-.01em}
+  .ends .from{color:var(--accent2)}
+  .ends .to{color:var(--accent);text-align:right}
+  /* caption_safe: the stage loses the bottom 18% to the caption band, so the
+     ladder and the counter are scaled to fit the remaining height. */
+  body.cap-safe .rungs{height:calc(var(--u)*27)}
+  body.cap-safe .num .value{font-size:calc(var(--u)*17)}
+  body.cap-safe .num .suffix{font-size:calc(var(--u)*9.5)}
+  body.cap-safe .label{margin-top:calc(var(--u)*1.6)}
+  @media (max-aspect-ratio:1/1){
+    .stage{flex-direction:column;align-items:stretch;justify-content:center;gap:calc(var(--u)*7)}
+    .left{flex:0 0 auto;align-self:auto;gap:calc(var(--u)*5)}
+    .ladder{flex:0 0 auto}
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="left">
+    <header id="header"><div class="fk" id="kicker"></div><div class="ft" id="title"></div></header>
+    <div class="stat" id="stat">
+      <div class="num"><span class="value" id="value"></span><span class="suffix" id="suffix"></span></div>
+      <div class="label" id="label"></div>
+    </div>
+  </div>
+  <div class="ladder" id="ladder">
+    <div class="rungs" id="rungs"><div class="marker" id="marker"></div></div>
+    <div class="base" id="base"></div>
+    <div class="ends"><span class="from" id="from"></span><span class="to" id="to"></span></div>
+  </div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in copy: a caller that omits content gets a bare ladder.
+  kicker:'', title:'', value:'', suffix:'', label:'', levels:5, from_label:'', to_label:'',
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+const F = MotionLib.film(P, {beats: 4, fallbackMs: 6000});
+window.RENDER_DURATION_MS = F.dur;
+
+const $ = (id) => document.getElementById(id);
+const kickerEl = $('kicker'), titleEl = $('title'), statEl = $('stat'), valueEl = $('value'), suffixEl = $('suffix');
+if (P.kicker) kickerEl.textContent = String(P.kicker); else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = String(P.title); else titleEl.style.display = 'none';
+const VALUE = String(P.value == null ? '' : P.value);
+valueEl.textContent = VALUE;
+if (P.suffix) suffixEl.textContent = String(P.suffix); else suffixEl.style.display = 'none';
+$('label').textContent = String(P.label || '');
+if (!VALUE && !P.label) statEl.style.display = 'none';
+const leftEl = document.querySelector('.left');
+if (!P.kicker && !P.title){
+  $('header').style.display = 'none';
+  leftEl.style.justifyContent = 'center';
+  if (!VALUE && !P.label) leftEl.style.display = 'none';
+}
+$('from').textContent = String(P.from_label || '');
+$('to').textContent = String(P.to_label || '');
+
+// Ladder: N rungs rising left to right. The lowest is accent2; the rest step up
+// through strengths of accent (mixed with the background, never with accent2 —
+// an orange/teal blend goes muddy).
+let N = parseInt(P.levels, 10);
+if (!(N >= 2)) N = 5;
+if (N > 8) N = 8;
+const rungsEl = $('rungs'), markerEl = $('marker');
+const rungs = [];
+const heightPct = (i) => 22 + 78 * (i / (N - 1));
+for (let i = 0; i < N; i++){
+  const r = document.createElement('div');
+  r.className = 'rung';
+  r.style.height = heightPct(i) + '%';
+  const f = document.createElement('div');
+  f.className = 'fill';
+  f.style.background = i === 0 ? 'var(--accent2)'
+    : 'color-mix(in srgb,var(--accent) ' + Math.round(N > 2 ? 44 + 56 * (i - 1) / (N - 2) : 100) + '%,var(--bg))';
+  const lit = document.createElement('div');
+  lit.className = 'lit';
+  r.appendChild(f); r.appendChild(lit);
+  rungsEl.insertBefore(r, markerEl);
+  rungs.push({el: r, fill: f, lit: lit});
+}
+
+// The value is set once, as given, and only its brightness changes: whatever
+// frame first shows the stat shows the real number (never "00" counting up).
+const labelEl = $('label');
+const STAT_DIM = 0.24;  // the unlit stat, before its mark: present, not yet emphasised
+
+F.ready(function(){ MotionLib.fit(titleEl, 2, 0.6); });
+
+const HOP_MS = 900;
+// Marker position (in rungs, fractional) at time t: rides the fill up, then
+// ping-pongs along the ladder forever.
+function markerAt(t, fillEnd){
+  const span = N - 1;
+  const k = (t - fillEnd) / HOP_MS;               // hops since the fill topped out
+  const cyc = ((k % (2 * span)) + 2 * span) % (2 * span);
+  const tri = cyc <= span ? span - cyc : cyc - span;  // starts at the top, walks down, back up
+  const base = Math.floor(tri), frac = tri - base;
+  return base + MotionLib.ease('easeInOutCubic', frac);
+}
+
+window.render = function(t){
+  F.ambient(t);
+  F.enter(kickerEl, t, 0, {dur: 420, travel: 1});
+  F.enter(titleEl, t, 0, {dur: 560, travel: 2});
+  // Beat 0: the whole ladder is on screen from the first frame — never a
+  // heading alone. It only settles a little (it does not fade in from nothing).
+  const sk = F.p(t, 0, 520);
+  rungs.forEach((r, i) => {
+    r.el.style.opacity = (0.8 + 0.2 * sk).toFixed(4);
+    r.el.style.transform = 'translateY(calc(var(--u)*' + ((1 - F.p(t, 0, 520, i * 40)) * 0.8).toFixed(3) + '))';
+  });
+  // Beat 0: the stat's frame (label + dim stat at its final value) opens with
+  // the heading. Beat 1: the stat lights as the number is spoken.
+  F.enter(statEl, t, 0, {dur: 560, travel: 1.2});
+  const on = F.p(t, 1, 420);
+  valueEl.style.opacity = (STAT_DIM + (1 - STAT_DIM) * on).toFixed(4);
+  suffixEl.style.opacity = (STAT_DIM + (1 - STAT_DIM) * F.p(t, 1, 420, 700)).toFixed(4);
+  labelEl.style.opacity = (0.72 + 0.28 * on).toFixed(4);
+  // Beats 2 -> 3: the fill climbs rung by rung; the end labels land with it.
+  const fillStart = F.marks[2], fillEnd = Math.max(F.marks[3], fillStart + 500) + 500;
+  const q = F.span(t, fillStart, fillEnd) * N;
+  rungs.forEach((r, i) => {
+    r.fill.style.transform = 'scaleY(' + MotionLib.ease('easeOutCubic', q - i).toFixed(4) + ')';
+  });
+  $('base').style.transform = 'scaleX(' + F.span(t, fillStart, fillEnd).toFixed(4) + ')';
+  const fromEl = $('from'), toEl = $('to');
+  fromEl.style.opacity = 0.42 * sk + 0.58 * F.p(t, 2, 500);
+  toEl.style.opacity = 0.42 * sk + 0.58 * F.p(t, 3, 500);
+  // Marker: climbs with the fill, then keeps stepping along the ladder.
+  let pos;
+  if (t < fillEnd) pos = Math.max(0, Math.min(N - 1, q - 0.5));
+  else pos = markerAt(t, fillEnd);
+  const lo = Math.max(0, Math.min(N - 1, Math.floor(pos))), hi = Math.min(N - 1, lo + 1), fr = pos - lo;
+  const h = heightPct(lo) + (heightPct(hi) - heightPct(lo)) * fr;
+  markerEl.style.left = ((pos + 0.5) / N * 100) + '%';
+  markerEl.style.bottom = 'calc(' + h + '% + var(--u)*1.1)';
+  markerEl.style.opacity = F.span(t, fillStart, fillStart + 300);
+  rungs.forEach((r, i) => {
+    const near = Math.max(0, 1 - Math.abs(pos - i));
+    // Before the fill starts a faint scan keeps sweeping the empty outline.
+    const scan = Math.max(0, 1 - Math.abs(F.loop(t, 2400) * (N + 1) - 1 - i));
+    r.lit.style.opacity = (t >= fillStart ? 0.22 * near : 0.1 * scan * sk).toFixed(4);
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

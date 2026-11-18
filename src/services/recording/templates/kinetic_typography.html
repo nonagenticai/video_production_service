@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    padding:8% 10%;background:radial-gradient(120% 120% at 50% 30%,var(--bg2),var(--bg));}
+  .glow{position:absolute;width:50vmin;height:50vmin;border-radius:50%;filter:blur(130px);
+    opacity:.2;background:var(--accent);pointer-events:none}
+  h1{font-family:var(--font-display);font-weight:600;font-size:9.5vmin;line-height:1.05;
+    letter-spacing:-.02em;color:var(--text);text-align:center;max-width:16em}
+  .w{display:inline-block;opacity:0;will-change:transform,opacity;margin-right:.26em}
+  .w.em{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow"></div>
+  <h1 id="line"></h1>
+</div>
+<script>
+const DEFAULTS = {
+  text:'The process holds the agency, not the model',
+  emphasis:['agency'],
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+const r = document.documentElement.style;
+for (const [k,v] of Object.entries({bg:P.bg,bg2:P.bg2,accent:P.accent,accent2:P.accent2,text:P.text,muted:P.muted}))
+  if (v) r.setProperty('--'+k, v);
+
+const words = Array.isArray(P.words) && P.words.length
+  ? P.words
+  : String(P.text||DEFAULTS.text).split(/\s+/).filter(Boolean);
+const emph = new Set((P.emphasis||[]).map(w=>String(w).toLowerCase().replace(/[^a-z0-9]/g,'')));
+const line = document.getElementById('line');
+words.forEach(w=>{
+  const span = document.createElement('span');
+  span.className = 'w';
+  const norm = w.toLowerCase().replace(/[^a-z0-9]/g,'');
+  if (emph.has(norm)) span.classList.add('em');
+  span.textContent = w;
+  line.appendChild(span);
+});
+
+// Legacy per-word timing preserved verbatim as the golden baseline: STAGGER=200,
+// WORD_DUR=560, entrance easing = easeOutCubic. Routed through MotionLib so the
+// orchestrator's motion signature (easing / stagger_ms / entrance_ms / exit_ms) can
+// drive it WHEN PRESENT; params-less each value collapses to its legacy constant and
+// the render stays byte-identical to the pre-retrofit template.
+const LEGACY_STAGGER = 200, LEGACY_WORD_DUR = 560;
+const N = words.length;
+const LEGACY_TOTAL = 600 + words.length*LEGACY_STAGGER + 1500;
+const T = MotionLib.timing(P, N, LEGACY_TOTAL);
+const raw = window.PARAMS || {};
+const STAGGER  = (raw.stagger_ms  != null && raw.stagger_ms  !== '') ? T.stagger  : LEGACY_STAGGER;
+const WORD_DUR = (raw.entrance_ms != null && raw.entrance_ms !== '') ? T.entrance : LEGACY_WORD_DUR;
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, LEGACY_TOTAL);
+window.render = function(t){
+  const spans = line.querySelectorAll('.w');
+  spans.forEach((s,i)=>{
+    // Bespoke per-word entrance (em-based translateY + scale) that layer() cannot express;
+    // easing routed through MotionLib (default easeOutCubic == legacy), exit gated off by default.
+    const p = MotionLib.ease(T.easing, (t-(300+i*STAGGER))/WORD_DUR);
+    let opacity = p;
+    if (T.exit > 0 && t > T.holdEnd) opacity = p * (1 - MotionLib.ease('easeOutCubic', (t-T.holdEnd)/T.exit));
+    s.style.opacity = opacity;
+    s.style.transform = `translateY(${(1-p)*0.5}em) scale(${0.92+p*0.08})`;
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

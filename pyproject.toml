@@ -1,0 +1,291 @@
+[project]
+license = "Apache-2.0"
+name = "video-production-service"
+version = "0.1.0"
+description = "Video recording, editing, and compilation microservice using Playwright and FFmpeg"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi[all]>=0.135.0",
+
+    "uvicorn[standard]>=0.41.0",
+
+    "psycopg[binary,pool]>=3.3.0",
+
+    "sqlalchemy[asyncio]>=2.0.48",
+
+    "pydantic>=2.12.0",
+
+    "pydantic-settings>=2.14.2",  # GHSA-4xgf-cpjx-pc3j fixed in 2.14.2
+
+    "python-dotenv>=1.2.0",
+
+    "redis>=7.3.0",
+
+    "alembic>=1.18.0",
+
+    "httpx>=0.28.0",
+
+    "cachetools>=7.0.0",
+
+    "playwright>=1.58.0",
+
+    "miniopy-async>=1.23.0",
+
+    "prometheus-client>=0.24.0",
+
+    "minio>=7.2.20",
+
+    "Pillow>=13.0.0",
+
+    "soundfile>=0.13.0",
+
+    "numpy>=2.4.0",
+
+    # w2v_common.net.safe_post — the sink-layer SSRF guard for BOTH webhook
+    # services: the compile one (#111) and the recording one (#110). Both PRs
+    # independently found the same floor bug, which is worth stating once:
+    # 0.51/0.52 export only validate_public_url / safe_get / safe_get_sync, so
+    # the old >=0.51.0 floor was satisfiable by a release that ImportErrors this
+    # service at startup. The lock happened to hold 0.54.0 and hid it — green CI
+    # proves the LOCK works, never that the declared FLOOR is honest.
+    # `safe_post` first ships in 0.53.0; pinned to >=0.55.0 to match the lock.
+    # (0.51.0 also carries the DNS-rebind + OOM hardening behind
+    # validate_public_url, used by src/api/schemas/recording.py.)
+    #
+    # >=0.55.0 is REQUIRED, not cosmetic: 0.55.0 gives `safe_get`/`safe_get_sync`
+    # a 64 MiB DEFAULT `max_fetch_bytes` where `None` previously meant an
+    # unbounded `aread()`. Every artifact fetch in this service sits inside an
+    # `except (... ValueError ...)` fail-soft handler, and `ResponseTooLargeError`
+    # subclasses `ValueError` — so inheriting the default silently degrades an
+    # oversized artifact into a SKIPPED segment rather than an error. The four
+    # sites therefore state their own ceiling explicitly (see
+    # `src/utils/url_guard.py`, ARTIFACT_*_MAX_BYTES); the floor is what
+    # guarantees the `max_fetch_bytes=` kwarg they pass actually exists.
+    #
+    # Raised 0.63.0 -> 0.67.7 (2026-08-29): the `_bg` entrypoints and the four
+    # cleanup reapers now OMIT `tenant_source` and rely on 0.67.7's
+    # KEEP_TENANT_SOURCE semantics — preserve for the same tenant, DROP on a
+    # tenant change. Against <=0.67.6 that same bare call DESTROYS provenance
+    # and every metered hop from a background job fails closed as 'unrecorded'.
+    # So this floor is load-bearing behaviour, not hygiene: resolving below it
+    # is silently wrong rather than a build error, which is exactly what the
+    # archetype's "Declared dependency-floor honesty" step exists to catch.
+    #
+    # Raised 0.67.7 -> 0.75.0 (entitlement gate): w2v-common 0.75.0 adds
+    # `w2v_common.auth.LICENSE_GATE`, the shared dependency that refuses a
+    # request whose tenant's w2v license is none/expired/revoked (402) or
+    # whose entitlement could not be established (503). Below 0.75.0 that
+    # import does not exist.
+    #
+    # Raised 0.75.0 -> 0.76.0 (WebSocket entitlement gate): `LICENSE_GATE` is
+    # typed for a Starlette `Request` and is therefore UNMOUNTABLE on a
+    # WebSocket route — FastAPI passes a `WebSocket`, the `Request`-annotated
+    # parameter is never filled, and the dependency raises
+    # `TypeError: require_license() missing 1 required positional argument`
+    # on EVERY handshake, armed or dormant (measured on origin/main, see
+    # tests/unit/test_ws_license_gate.py). 0.76.0 adds
+    # `w2v_common.auth.LICENSE_GATE_WS` / `require_license_ws` and the
+    # 1008/1013 close codes this service now mounts on
+    # `/api/compile/jobs/{job_id}/ws`. Below 0.76.0 that import does not exist,
+    # so the floor is load-bearing: a resolution at 0.75.x ImportErrors
+    # `src/api/routes/compilation.py` at startup.
+    "w2v-common>=0.76.0",
+
+    # --- Security floors on transitive dependencies ---
+    # Neither of these is imported by this service directly; both arrive through
+    # other pins — aiohttp via miniopy-async (the async MinIO client this service
+    # uses for every artifact upload) and aiohttp-retry, cryptography via pyjwt
+    # and w2v-common. A fleet-wide sweep already moved the LOCK to safe versions;
+    # these floors are what stop it drifting back. A lock is a point-in-time
+    # resolution, not a constraint, so the next unrelated `uv lock` is free to
+    # walk an undeclared transitive down again — silently, with green CI. The
+    # declared floor is the only thing that binds it.
+    #
+    # aiohttp 3.14.1 was flagged by CVE-2026-59881 + CVE-2026-69243 (fixed in
+    # 3.14.2) and CVE-2026-69244 (fixed in 3.14.3); 3.14.3 was then flagged by
+    # CVE-2026-111063 + CVE-2026-111064 + GHSA-2g87-pp6c-29x5 (fixed in 3.14.4).
+    "aiohttp>=3.14.4",
+    # cryptography: CVE-2026-69247 (GHSA-g6cj-pr64-35w5) was introduced in
+    # 44.0.0 and fixed in 50.0.0, so the previously-locked 49.0.0 was affected.
+    "cryptography>=50.0.0",
+]
+
+[project.scripts]
+video-production-service = "src.asgi:main"
+
+[project.optional-dependencies]
+observability = [
+    "opentelemetry-api>=1.45.2",
+
+    "opentelemetry-sdk>=1.40.0",
+
+    "opentelemetry-exporter-otlp-proto-grpc>=1.40.0",
+
+    "opentelemetry-instrumentation-fastapi>=0.61b0",
+
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+override-dependencies = [
+    # miniopy-async (1.23.5, the LATEST release, so there is no upstream fix to
+    # wait for) caps the CA-certificate bundle:
+    #   certifi>=2025.1.31,<2026.0.0
+    # That is lazy upper-bounding, not a real incompatibility -- certifi ships
+    # DATA, its entire public API is where()/contents(), and shipping CURRENT
+    # roots is the package's whole purpose. Left alone the cap pins this repo to a
+    # trust store from Nov 2025, and no relock can move it.
+    #
+    # NOT overriding miniopy-async's argon2-cffi<24.0.0 alongside it: that is a
+    # MAJOR bump with real API surface and needs its own testing rather than
+    # riding along with a data-only package.
+    "certifi>=2026.7.22",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+
+    "pytest-asyncio>=1.3.0",
+
+    "pytest-cov>=7.0.0",
+
+    "pytest-timeout>=2.4.0",
+
+    "pytest-mock>=3.15.0",
+
+    "httpx>=0.28.0",
+    "ruff>=0.15.0",
+
+    # <0.0.32: newer ty flags ~10 latent typing issues in tests/ (str.join on
+    # LiteralString lists, missing schema args, capture_screen_clips arg order).
+    # Dev-only type checker, no runtime/pip-audit impact; lift when tests are cleaned up.
+    "ty>=0.0.23,<0.0.32",
+
+    "pip-audit>=2.10.0",
+    # pip is a transitive dep of pip-audit (pip-audit -> pip-api -> pip).
+    # Explicit floor: pip < 26.2 is vulnerable to PYSEC-2026-3721.
+    "pip>=26.2",
+
+    "detect-secrets>=1.5.0",
+    "bandit>=1.9.4",
+
+    "fakeredis>=2.34.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "N", "W", "UP", "ANN", "B", "BLE", "A", "S", "C901",
+    "RUF", "RET", "SIM", "ASYNC", "PTH", "TID251",
+]
+ignore = [
+    "E501",
+    "B008",
+    # ASYNC240 (pathlib in async) requires anyio.Path refactor across ~17
+    # production async paths; tracked as fleet-wide follow-up. Sync stat
+    # calls in async handlers are microsecond-fast; not a latency hotspot.
+    "ASYNC240"
+]
+
+# uuid7 is the id standard (stdlib, py3.14). TID251 bans `uuid4` in production
+# code via ruff — enforced in CI (`ruff check .`), not only local pre-commit.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"uuid.uuid4".msg = "uuid7 is the w2v id standard — use uuid.uuid7() (stdlib, py3.14)."
+
+[tool.ruff.lint.per-file-ignores]
+"src/database/migrations/*" = ["I001", "ANN"]
+"tests/**/*.py" = ["S101", "S104", "S105", "S106", "S107", "S108", "ANN", "PTH", "ASYNC230", "ASYNC240", "SIM117", "TID251"]
+
+# ── ANN401 ratchet (see [tool.ruff.lint].ignore note) ─────────────────────────
+# These files still carry `Any` in a function signature. Do NOT add to this list.
+# When you type a file's seam with pydantic models, DELETE its line here — that
+# re-enables ANN401 for the file and locks the win in. Target: empty.
+"src/api/events.py" = ["ANN401"]
+"src/api/routes/_compilation_extras.py" = ["ANN401"]
+"src/api/routes/_compilation_helpers.py" = ["ANN401"]
+"src/api/routes/_compilation_jobs.py" = ["ANN401"]
+"src/api/ws.py" = ["ANN401"]
+"src/config.py" = ["ANN401"]
+"src/observability/setup.py" = ["ANN401"]
+"src/services/compilation/_compiler_context.py" = ["ANN401"]
+"src/services/compilation/_effects.py" = ["ANN401"]
+"src/services/compilation/_finalize.py" = ["ANN401"]
+"src/services/compilation/_segment_builders.py" = ["ANN401"]
+"src/services/compilation/compiler_service.py" = ["ANN401"]
+"src/services/compilation/edit_plan_service.py" = ["ANN401"]
+"src/services/compilation/rate_limiter.py" = ["ANN401"]
+"src/services/compilation/video_editor.py" = ["ANN401"]
+"src/services/job_lease.py" = ["ANN401"]
+"src/services/recording/animation_recorder.py" = ["ANN401"]
+"src/services/recording/concurrency.py" = ["ANN401"]
+"src/services/recording/content_recorder.py" = ["ANN401"]
+"src/services/recording/event_publisher.py" = ["ANN401"]
+"src/services/recording/url_recorder.py" = ["ANN401"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+]
+# A CI hang is a worse signal than a red test: it burns the runner and reports
+# nothing. Several tests drive SSE handlers whose generators loop on a keepalive
+# ``asyncio.sleep``; under httpx ``ASGITransport`` the whole body is buffered and
+# ``Request.is_disconnected()`` never returns True, so a regression that removes a
+# guard makes the test hang forever instead of failing. ``pytest-timeout`` is
+# already a dependency — this arms it. "thread" method so a blocked event loop
+# still gets killed.
+#
+# The bound is 300s, not 60s: `test_title_card_segment_processed` legitimately
+# runs longer than a minute on this hardware, and a global 60s turned an
+# otherwise-passing suite red. The SSE guard tests carry their own tighter
+# ``@pytest.mark.timeout`` — this global value exists only to stop a genuine
+# hang from burning a whole runner.
+timeout = 300
+timeout_method = "thread"
+filterwarnings = [
+    "ignore:coroutine '.*AsyncMockMixin._execute_mock_call.*' was never awaited:RuntimeWarning",
+    "ignore:coroutine '.*_fire_webhook.*' was never awaited:RuntimeWarning",
+]
+
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.rules]
+unresolved-import = "error"
+unresolved-reference = "error"
+unresolved-attribute = "error"
+possibly-unresolved-reference = "error"
+possibly-missing-attribute = "error"
+missing-argument = "error"
+invalid-argument-type = "error"
+invalid-return-type = "error"
+
+# Optional opentelemetry SDK + OTLP gRPC exporter extras aren't in the prod
+# lockfile; ty rightly can't resolve them. Scope the suppression to the
+# observability setup module instead of scattering source-level
+# `# ty: ignore[unresolved-import]` comments.
+[[tool.ty.overrides]]
+include = ["src/observability/setup.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+
+[tool.uv.sources]
+# The published source tree resolves its shared library from the public
+# repository at the release tag; the private index is not reachable here.
+w2v-common = { git = "https://github.com/nonagenticai/w2v_common", tag = "v0.115.4" }

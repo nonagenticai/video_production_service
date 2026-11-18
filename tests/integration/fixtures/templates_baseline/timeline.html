@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:8% 9%;background:radial-gradient(120% 120% at 80% 0%,var(--bg2),var(--bg));
+    background-size:140% 140%;animation:bgShimmer 18s ease-in-out infinite}
+  .glow{position:absolute;width:48vmin;height:48vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);right:-14vmin;top:-16vmin;pointer-events:none;
+    will-change:transform,opacity}
+  @keyframes bgShimmer{
+    0%{background-position:80% 0%}
+    50%{background-position:72% 8%}
+    100%{background-position:80% 0%}}
+  .kicker{font-size:2.2vmin;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:2.4vmin}
+  h1{font-family:var(--font-display);font-weight:600;font-size:5.6vmin;line-height:1.04;
+    letter-spacing:-.02em;color:var(--text);max-width:18em;margin-bottom:5vmin}
+  /* The connecting line runs behind the numbered nodes. */
+  ol{list-style:none;position:relative;display:flex;flex-direction:column;gap:3.4vmin;
+    max-width:34em}
+  ol::before{content:"";position:absolute;left:2.6vmin;top:1.6vmin;bottom:1.6vmin;width:.4vmin;
+    border-radius:.4vmin;background:linear-gradient(var(--accent),var(--accent2));opacity:.35}
+  li{display:flex;align-items:flex-start;gap:2.6vmin;position:relative}
+  li .node{flex-shrink:0;width:5.2vmin;height:5.2vmin;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--accent) 18%,var(--bg));
+    border:.4vmin solid var(--accent);color:var(--text);
+    font-family:var(--font-display);font-weight:600;font-size:2.6vmin;
+    box-shadow:0 0 0 .8vmin color-mix(in srgb,var(--accent) 14%,transparent)}
+  li .body{padding-top:.4vmin}
+  li .t{font-size:3vmin;line-height:1.2;font-weight:600;color:var(--text)}
+  li .d{font-size:2.2vmin;line-height:1.35;color:var(--muted);margin-top:.7vmin;max-width:24em}
+  [data-anim]{opacity:0}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow" id="glow"></div>
+  <span class="kicker" id="kicker" data-anim></span>
+  <h1 id="title" data-anim></h1>
+  <ol id="steps"></ol>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in kicker/title/steps copy: a caller that omits content must get
+  // an empty render, never fabricated marketing text (see
+  // fix/strip-fabricated-template-defaults).
+  kicker:'', title:'',
+  steps:[],
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+// Bind header text (textContent — no HTML injection).
+const kickerEl = document.getElementById('kicker');
+const titleEl = document.getElementById('title');
+if (P.kicker) kickerEl.textContent = P.kicker; else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = P.title; else titleEl.style.display = 'none';
+
+// Normalize steps: accept a plain list of strings OR {title, body?} objects.
+function normStep(s){
+  if (s == null) return {title:'', body:''};
+  if (typeof s === 'string') return {title:s, body:''};
+  return {title:s.title != null ? String(s.title) : '', body:s.body != null ? String(s.body) : ''};
+}
+// No fabricated fallback list: zero steps in → an empty <ol> (no fake roadmap).
+const rawSteps = Array.isArray(P.steps) ? P.steps : DEFAULTS.steps;
+const steps = rawSteps.slice(0, 6).map(normStep);
+
+const ol = document.getElementById('steps');
+steps.forEach((s, i) => {
+  const li = document.createElement('li');
+  li.setAttribute('data-anim', '');
+  const node = document.createElement('span');
+  node.className = 'node';
+  node.textContent = String(i + 1);
+  const body = document.createElement('span');
+  body.className = 'body';
+  const t = document.createElement('div');
+  t.className = 't';
+  t.textContent = s.title;
+  body.appendChild(t);
+  if (s.body){
+    const d = document.createElement('div');
+    d.className = 'd';
+    d.textContent = s.body;
+    body.appendChild(d);
+  }
+  li.appendChild(node);
+  li.appendChild(body);
+  ol.appendChild(li);
+});
+
+// Staggered elements: kicker + title + each step.
+const N = 2 + steps.length;
+const FALLBACK_MS = 4600;
+const T = MotionLib.timing(P, N, FALLBACK_MS);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, FALLBACK_MS);
+
+const items = Array.prototype.slice.call(ol.querySelectorAll('li'));
+window.render = function(t){
+  MotionLib.glow(document.getElementById('glow'), t, T);
+  MotionLib.layer(kickerEl, t, {start: T.marks[0], dur: 520, travel: 14, T});
+  MotionLib.layer(titleEl, t, {start: T.marks[1], dur: 640, travel: 26, T});
+  items.forEach((li, i) => {
+    MotionLib.layer(li, t, {start: T.marks[2 + i], dur: 600, travel: 22, T});
+  });
+};
+window.render(0);
+</script>
+</body>
+</html>

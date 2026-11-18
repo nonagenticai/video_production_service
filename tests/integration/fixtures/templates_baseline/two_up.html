@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:8% 9%;background:radial-gradient(120% 120% at 80% 0%,var(--bg2),var(--bg));
+    background-size:140% 140%;animation:bgShimmer 18s ease-in-out infinite}
+  .glow{position:absolute;width:48vmin;height:48vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);left:-14vmin;bottom:-16vmin;pointer-events:none;
+    will-change:transform,opacity}
+  @keyframes bgShimmer{
+    0%{background-position:80% 0%}
+    50%{background-position:72% 8%}
+    100%{background-position:80% 0%}}
+  header{margin-bottom:5vmin}
+  .kicker{font-size:2.2vmin;font-weight:700;letter-spacing:.24em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:2.2vmin}
+  h1{font-family:var(--font-display);font-weight:600;font-size:5.6vmin;line-height:1.04;
+    letter-spacing:-.02em;color:var(--text);max-width:20em}
+  /* Two columns; wrap+stack on tall/vertical formats. */
+  .split{display:flex;flex-wrap:wrap;gap:5vmin;align-items:stretch}
+  .col{flex:1 1 30em;min-width:0;position:relative;padding:4vmin 4vmin 4vmin 5vmin;
+    border-radius:2vmin;background:color-mix(in srgb,var(--bg2) 60%,transparent)}
+  .col::before{content:"";position:absolute;left:0;top:2vmin;bottom:2vmin;width:.6vmin;
+    border-radius:.6vmin}
+  .col.left::before{background:var(--accent)}
+  .col.right::before{background:var(--accent2)}
+  .col .t{font-family:var(--font-display);font-weight:600;font-size:3.4vmin;line-height:1.1;
+    color:var(--text);margin-bottom:2vmin}
+  .col .b{font-size:2.6vmin;line-height:1.4;color:var(--muted)}
+  [data-anim]{opacity:0}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow" id="glow"></div>
+  <header>
+    <span class="kicker" id="kicker" data-anim></span>
+    <h1 id="title" data-anim></h1>
+  </header>
+  <div class="split">
+    <div class="col left" id="left" data-anim></div>
+    <div class="col right" id="right" data-anim></div>
+  </div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in kicker/title/column copy: a caller that omits content must
+  // get an empty render, never a fabricated "old way / new way" pitch (see
+  // fix/strip-fabricated-template-defaults).
+  kicker:'', title:'',
+  two_up:{
+    left:{title:'', body:''},
+    right:{title:'', body:''},
+  },
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+// Optional header (kicker + title) above the split.
+const kickerEl = document.getElementById('kicker');
+const titleEl = document.getElementById('title');
+if (P.kicker) kickerEl.textContent = P.kicker; else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = P.title; else titleEl.style.display = 'none';
+
+// Normalize a side: accept a plain string OR {title, body}.
+function normSide(s){
+  if (s == null) return {title:'', body:''};
+  if (typeof s === 'string') return {title:'', body:s};
+  return {title:s.title != null ? String(s.title) : '', body:s.body != null ? String(s.body) : ''};
+}
+const tu = (P.two_up && typeof P.two_up === 'object') ? P.two_up : DEFAULTS.two_up;
+const sides = {left: normSide(tu.left), right: normSide(tu.right)};
+
+// A side with no title and no body is a fully empty column: hide it rather
+// than render an empty bordered box (a half-built skeleton). Returns whether
+// the column ended up with content.
+function fillCol(el, side){
+  if (!side.title && !side.body){ el.style.display = 'none'; return false; }
+  if (side.title){
+    const t = document.createElement('div');
+    t.className = 't';
+    t.textContent = side.title;
+    el.appendChild(t);
+  }
+  if (side.body){
+    const b = document.createElement('div');
+    b.className = 'b';
+    b.textContent = side.body;
+    el.appendChild(b);
+  }
+  return true;
+}
+const leftEl = document.getElementById('left');
+const rightEl = document.getElementById('right');
+const hasLeft = fillCol(leftEl, sides.left);
+const hasRight = fillCol(rightEl, sides.right);
+// Neither column has content -> hide the whole split row too.
+if (!hasLeft && !hasRight) document.querySelector('.split').style.display = 'none';
+
+// Staggered elements: kicker + title + left column + right column.
+const N = 4;
+const FALLBACK_MS = 4200;
+const T = MotionLib.timing(P, N, FALLBACK_MS);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, FALLBACK_MS);
+
+window.render = function(t){
+  MotionLib.glow(document.getElementById('glow'), t, T);
+  MotionLib.layer(kickerEl, t, {start: T.marks[0], dur: 520, travel: 14, T});
+  MotionLib.layer(titleEl, t, {start: T.marks[1], dur: 640, travel: 26, T});
+  MotionLib.layer(leftEl, t, {start: T.marks[2], dur: 640, travel: 24, T});
+  MotionLib.layer(rightEl, t, {start: T.marks[3], dur: 640, travel: 24, T});
+};
+window.render(0);
+</script>
+</body>
+</html>

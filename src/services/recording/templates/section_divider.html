@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Fraunces',Georgia,serif;--font-sans:'IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{font-family:var(--font-sans);overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    align-items:center;text-align:center;padding:9% 11%;
+    background:radial-gradient(120% 120% at 50% 0%,var(--bg2),var(--bg))}
+  .glow{position:absolute;width:50vmin;height:50vmin;border-radius:50%;filter:blur(120px);
+    opacity:.2;background:var(--accent);left:50%;top:50%;
+    transform:translate(-50%,-50%);pointer-events:none;will-change:transform,opacity}
+  .kicker{font-size:2.6vmin;font-weight:700;letter-spacing:.34em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:4vmin;will-change:transform,opacity}
+  h1{font-family:var(--font-display);font-weight:600;font-size:9vmin;line-height:1.02;
+    letter-spacing:-.025em;color:var(--text);max-width:16em;will-change:transform,opacity}
+  .rule{width:22vmin;height:.5vmin;border-radius:1vmin;margin-top:5vmin;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    transform:scaleX(0);transform-origin:center;will-change:transform,opacity}
+  [data-anim]{opacity:0}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="glow"></div>
+  <span class="kicker" id="kicker" data-anim></span>
+  <h1 id="title" data-anim></h1>
+  <div class="rule" id="rule"></div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in kicker/title copy: a caller that omits content must get an
+  // empty render, never a fabricated chapter heading (see
+  // fix/strip-fabricated-template-defaults).
+  kicker:'', title:'',
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+
+// textContent — never innerHTML — for user-supplied strings.
+document.getElementById('title').textContent = P.title;
+const kickerEl = document.getElementById('kicker');
+if (P.kicker) kickerEl.textContent = P.kicker; else kickerEl.style.display = 'none';
+
+// Ordered staggered elements: kicker?, title, then the draw-in rule.
+const seq = [];
+if (P.kicker) seq.push({el:kickerEl, travel:14});
+seq.push({el:document.getElementById('title'), travel:26});
+const ruleEl = document.getElementById('rule');
+const ruleIdx = seq.length;               // rule gets its own timeline mark
+
+const FALLBACK_MS = 3600, BASE = 80, DUR = 720, RULE_DUR = 640;
+const T = MotionLib.timing(P, seq.length + 1, FALLBACK_MS);
+window.RENDER_DURATION_MS = MotionLib.renderDurationMs(P, FALLBACK_MS);
+
+const glowEl = document.querySelector('.glow');
+window.render = function(t){
+  MotionLib.glow(glowEl, t, T);
+  seq.forEach((s,i)=> MotionLib.layer(s.el, t, {start:T.marks[i]+BASE, dur:DUR, travel:s.travel, T}));
+  // Rule draws in via scaleX using the shared easing (no local easing).
+  const rp = MotionLib.ease(T.easing, (t - (T.marks[ruleIdx]+BASE)) / RULE_DUR);
+  let op = rp;
+  if (T.exit > 0 && t > T.holdEnd){
+    op = 1 - MotionLib.ease('easeOutCubic', (t - T.holdEnd) / T.exit);
+  }
+  ruleEl.style.opacity = op;
+  ruleEl.style.transform = 'scaleX(' + rp + ')';
+};
+window.render(0);
+</script>
+</body>
+</html>

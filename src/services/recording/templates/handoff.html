@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!--
+  handoff — a routing flow: a labelled source node, a route (dotted rail ending
+  in an arrowhead) with packets travelling along it, and a destination node that
+  takes over.
+
+  PARAMS (window.PARAMS; all optional, strings unless noted)
+    kicker       ""      small caps line above the title (hidden when empty)
+    title        ""      heading (hidden when empty; fits to <= 2 lines)
+    from         {}      {icon: string = "bot", label: string = ""} — source node
+    route        {}      {label: string = ""} — pill on the route (hidden when empty)
+    to           {}      {icon: string = "user", label: string = ""} — destination node
+                         icon = a name from _icons.js (unknown -> no glyph)
+    duration_ms  6000    number, clip length; pass the record request's value
+    marks        —       number[3] ms: [title + both nodes + empty route, route
+                         label + packets start, destination lights + its label].
+                         Beat 0 is pinned to 0. Absent: spread over the first half.
+    film_t_ms    0       number, this card's start on the film clock (ambient continuity)
+    caption_safe true    keep the layout above video_compiler's burned-in caption
+                         band (bottom 18% of the frame; derivation with compiler
+                         file:line in _motion_lib.js CAPTION); false = full frame
+    easing, stagger_ms, glow_drift — see _motion_lib.js (film kit)
+    bg, bg2, accent, accent2, text, muted, font_display, font_sans — brand tokens
+  Continuous motion: the route's dashes flow from the first frame; from beat 1
+  packets keep travelling source -> destination, and from beat 2 the destination
+  ripples each time one arrives.
+-->
+<style>
+  :root{
+    --bg:#0B1437;--bg2:#16205a;--accent:#14B8A6;--accent2:#F97316;
+    --text:#F8FAFC;--muted:#94A3B8;
+    --font-display:'Inter','IBM Plex Sans',-apple-system,sans-serif;
+    --font-sans:'Inter','IBM Plex Sans',-apple-system,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%}
+  body{overflow:hidden}
+  .stage{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:calc(var(--u)*5) calc(var(--u)*7);gap:calc(var(--u)*5.5)}
+  header .fk{margin-bottom:calc(var(--u)*1.4)}
+  .flow{position:relative;display:flex;align-items:center;height:calc(var(--u)*20);
+    margin:0 calc(var(--u)*1) calc(var(--u)*7.5)}
+  .node{position:relative;flex:0 0 auto;width:calc(var(--u)*20);height:calc(var(--u)*20);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    background:color-mix(in srgb,var(--text) 6%,var(--bg))}
+  .node .ring{position:absolute;inset:0;border-radius:50%;
+    box-shadow:inset 0 0 0 calc(var(--u)*.24) color-mix(in srgb,var(--text) 38%,transparent)}
+  .node .glyph,.node .glyph2{position:absolute;inset:27%;display:flex}
+  .node.to .on{position:absolute;inset:0;border-radius:50%;
+    background:color-mix(in srgb,var(--accent) 20%,var(--bg));
+    box-shadow:inset 0 0 0 calc(var(--u)*.4) var(--accent),0 0 calc(var(--u)*5) color-mix(in srgb,var(--accent) 45%,transparent)}
+  .node.to .ripple{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 calc(var(--u)*.3) var(--accent);opacity:0}
+  .cap{position:absolute;left:50%;top:100%;transform:translateX(-50%);margin-top:calc(var(--u)*1.8);
+    width:calc(var(--u)*30);text-align:center;font-family:var(--font-display);font-weight:700;
+    font-size:calc(var(--u)*3.8);line-height:1.1;letter-spacing:-.015em;color:var(--text);text-wrap:balance}
+  .route{position:relative;flex:1 1 0;height:100%;min-width:0;margin:0 calc(var(--u)*1.8)}
+  /* The rail is a row of dots that flows toward the destination; it stops short
+     of the arrowhead drawn at its end. */
+  .rail{position:absolute;left:0;right:calc(var(--u)*3.4);top:50%;height:calc(var(--u)*.6);margin-top:calc(var(--u)*-.3);
+    background-image:radial-gradient(circle,color-mix(in srgb,var(--text) 55%,transparent) 0,
+      color-mix(in srgb,var(--text) 55%,transparent) calc(var(--u)*.22),transparent calc(var(--u)*.3));
+    background-size:calc(var(--u)*1.8) 100%;background-repeat:repeat-x}
+  .arrow{position:absolute;right:0;top:50%;width:calc(var(--u)*4);height:calc(var(--u)*4);margin-top:calc(var(--u)*-2)}
+  .arrow svg{width:100%;height:100%;overflow:visible}
+  .pill{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;
+    margin-top:calc(var(--u)*-6.6);padding:calc(var(--u)*1) calc(var(--u)*2.4);border-radius:calc(var(--u)*3.4);
+    font-family:var(--font-display);font-weight:600;font-size:calc(var(--u)*3.2);line-height:1.1;color:var(--text);
+    background:color-mix(in srgb,var(--accent) 16%,var(--bg));
+    box-shadow:inset 0 0 0 calc(var(--u)*.2) var(--accent)}
+  .packet{position:absolute;top:50%;width:calc(var(--u)*4.2);height:calc(var(--u)*3);
+    margin:calc(var(--u)*-1.5) 0 0 calc(var(--u)*-2.1);border-radius:calc(var(--u)*.8);
+    background:var(--accent2);box-shadow:0 0 calc(var(--u)*1.6) color-mix(in srgb,var(--accent2) 60%,transparent);opacity:0}
+  .packet::after{content:"";position:absolute;left:18%;right:18%;top:38%;height:calc(var(--u)*.3);
+    border-radius:1vmin;background:var(--bg);opacity:.55}
+  @media (max-aspect-ratio:1/1){
+    .flow{height:calc(var(--u)*12)}
+    .node{width:calc(var(--u)*12);height:calc(var(--u)*12)}
+    .cap{width:calc(var(--u)*19);font-size:calc(var(--u)*2.6)}
+    .pill{font-size:calc(var(--u)*2.3)}
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <header id="header"><div class="fk" id="kicker"></div><div class="ft" id="title"></div></header>
+  <div class="flow">
+    <div class="node from" id="from"><div class="ring"></div><div class="glyph" id="fromGlyph"></div><div class="cap" id="fromCap"></div></div>
+    <div class="route" id="route">
+      <div class="rail" id="rail"></div>
+      <div class="arrow" id="arrow"><svg viewBox="0 0 24 24" fill="none" stroke="var(--text)" stroke-width="2.6"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4l9 8-9 8"/></svg></div>
+      <div class="packet"></div><div class="packet"></div><div class="packet"></div>
+      <div class="pill" id="pill"></div>
+    </div>
+    <div class="node to" id="to"><div class="ring"></div><div class="on" id="toOn"></div><div class="ripple" id="toRipple"></div>
+      <div class="glyph" id="toGlyph"></div><div class="glyph2" id="toGlyphOn"></div><div class="cap" id="toCap"></div></div>
+  </div>
+</div>
+<script>
+const DEFAULTS = {
+  // No built-in copy: labels are whatever the caller sends.
+  kicker:'', title:'', from:{}, route:{}, to:{},
+  bg:'#0B1437', bg2:'#16205a', accent:'#14B8A6', accent2:'#F97316',
+  text:'#F8FAFC', muted:'#94A3B8',
+};
+const P = Object.assign({}, DEFAULTS, window.PARAMS || {});
+MotionLib.applyBrandVars(P);
+const F = MotionLib.film(P, {beats: 3, fallbackMs: 6000});
+window.RENDER_DURATION_MS = F.dur;
+
+const obj = (v) => (v && typeof v === 'object') ? v : {};
+const from = obj(P.from), route = obj(P.route), to = obj(P.to);
+const $ = (id) => document.getElementById(id);
+const kickerEl = $('kicker'), titleEl = $('title');
+if (P.kicker) kickerEl.textContent = String(P.kicker); else kickerEl.style.display = 'none';
+if (P.title) titleEl.textContent = String(P.title); else titleEl.style.display = 'none';
+if (!P.kicker && !P.title) $('header').style.display = 'none';
+
+// Icon NAMES are looked up in the fixed ICONS table (never injected as markup).
+const glyph = (name, color) => iconSvg(String(name || ''), {size: '100%', color: color, strokeWidth: 1.6});
+$('fromGlyph').innerHTML = glyph(from.icon || 'bot', 'var(--text)');
+$('toGlyph').innerHTML = glyph(to.icon || 'user', 'var(--text)');
+$('toGlyphOn').innerHTML = glyph(to.icon || 'user', 'var(--accent)');
+const fromCap = $('fromCap'), toCap = $('toCap'), pillEl = $('pill');
+if (from.label) fromCap.textContent = String(from.label); else fromCap.style.display = 'none';
+if (to.label) toCap.textContent = String(to.label); else toCap.style.display = 'none';
+if (route.label) pillEl.textContent = String(route.label); else pillEl.style.display = 'none';
+
+const packets = Array.prototype.slice.call(document.querySelectorAll('.packet'));
+const rail = $('rail'), arrow = $('arrow');
+
+F.ready(function(){
+  MotionLib.fit(titleEl, 2, 0.6);
+  MotionLib.fit(fromCap, 2, 0.7);
+  MotionLib.fit(toCap, 2, 0.7);
+});
+
+const TRIP_MS = 2100;    // one packet's journey
+window.render = function(t){
+  F.ambient(t);
+  F.enter(kickerEl, t, 0, {dur: 420, travel: 1});
+  F.enter(titleEl, t, 0, {dur: 560, travel: 2});
+  // Beat 0: both nodes and the empty, flowing route are on screen from frame one.
+  const e0 = F.p(t, 0, 520);
+  const fromEl = $('from'), toEl = $('to');
+  fromEl.style.opacity = e0;
+  fromEl.style.transform = 'scale(' + (0.94 + 0.06 * e0).toFixed(4) + ')';
+  rail.style.backgroundPositionX = 'calc(var(--u)*' + ((t / 1000) * 2.4 % 1.8).toFixed(4) + ')';
+  rail.style.opacity = e0;
+  arrow.style.opacity = e0 * (0.6 + 0.4 * F.p(t, 2, 560));
+  arrow.style.transform = 'translateX(calc(var(--u)*' + (0.35 * F.wave(t, 1400)).toFixed(3) + '))';
+  // Beat 1: the route is named and packets start travelling.
+  const r1 = F.p(t, 1, 520);
+  pillEl.style.opacity = r1;
+  pillEl.style.transform = 'translate(-50%,calc(-50% + var(--u)*' + ((1 - r1) * 1.4).toFixed(3) + '))';
+  const since1 = t - F.marks[1];
+  packets.forEach((pk, i) => {
+    const local = since1 - i * (TRIP_MS / packets.length);
+    if (local < 0){ pk.style.opacity = 0; return; }
+    const x = (local % TRIP_MS) / TRIP_MS;                 // 0..1 along the route
+    pk.style.left = (x * 96).toFixed(3) + '%';
+    pk.style.opacity = Math.min(1, x * 8, (1 - x) * 8);
+  });
+  // Beat 2: the destination takes over — it lights, is named, and ripples on arrivals.
+  const r2 = F.p(t, 2, 560);
+  toEl.style.opacity = e0;
+  toEl.style.transform = 'scale(' + (0.94 + 0.06 * e0 + 0.05 * MotionLib.ease('easeOutBack', (t - F.marks[2]) / 520)).toFixed(4) + ')';
+  $('toOn').style.opacity = r2;
+  $('toGlyphOn').style.opacity = r2;
+  $('toGlyph').style.opacity = 1 - r2;
+  toCap.style.opacity = 0.5 * e0 + 0.5 * r2;
+  fromCap.style.opacity = e0;
+  const rip = $('toRipple');
+  const beat = F.loop(since1, TRIP_MS / packets.length);    // one ripple per arriving packet
+  rip.style.opacity = t >= F.marks[2] ? 0.6 * (1 - beat) * r2 : 0;
+  rip.style.transform = 'scale(' + (1 + 0.22 * beat).toFixed(4) + ')';
+};
+window.render(0);
+</script>
+</body>
+</html>
