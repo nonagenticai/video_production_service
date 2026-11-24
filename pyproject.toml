@@ -167,7 +167,7 @@ dev = [
     # <0.0.32: newer ty flags ~10 latent typing issues in tests/ (str.join on
     # LiteralString lists, missing schema args, capture_screen_clips arg order).
     # Dev-only type checker, no runtime/pip-audit impact; lift when tests are cleaned up.
-    "ty>=0.0.23,<0.0.105",
+    "ty>=0.0.23,<0.0.108",
 
     "pip-audit>=2.10.0",
     # pip is a transitive dep of pip-audit (pip-audit -> pip-api -> pip).
